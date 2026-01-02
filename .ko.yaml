@@ -1,0 +1,7 @@
+defaultBaseImage: cgr.dev/chainguard/static:latest
+
+builds:
+  - id: bot
+    main: ./cmd/bot
+    env:
+      - CGO_ENABLED=0
