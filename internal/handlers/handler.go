@@ -256,7 +256,7 @@ func (h *BotHandler) sendStep(ctx context.Context, userID int64, step *models.St
 	stepWithHint := &models.Step{
 		ID:           step.ID,
 		StepOrder:    step.StepOrder,
-		Text:         step.Text + answerHint + progressText,
+		Text:         progressText + "\n\n" + step.Text + answerHint,
 		AnswerType:   step.AnswerType,
 		HasAutoCheck: step.HasAutoCheck,
 		IsActive:     step.IsActive,
