@@ -156,6 +156,11 @@ func (h *BotHandler) sendShadowBanResponse(ctx context.Context, chatID int64) {
 }
 
 func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
+	if strings.HasPrefix(callback.Data, "next_step:") {
+		h.handleNextStepCallback(ctx, callback)
+		return
+	}
+
 	if callback.From.ID != h.adminID {
 		return
 	}
@@ -168,8 +173,6 @@ func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.Call
 		h.handleAdminDecision(ctx, callback)
 	} else if strings.HasPrefix(callback.Data, "block:") {
 		h.handleBlockUser(ctx, callback)
-	} else if strings.HasPrefix(callback.Data, "next_step:") {
-		h.handleNextStepCallback(ctx, callback)
 	}
 }
 
