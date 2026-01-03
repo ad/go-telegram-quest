@@ -11,6 +11,7 @@ type User struct {
 	FirstName string
 	LastName  string
 	Username  string
+	IsBlocked bool
 	CreatedAt time.Time
 }
 

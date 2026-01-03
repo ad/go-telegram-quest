@@ -22,4 +22,6 @@ const (
 	StateAdminAddAnswer        = "admin_add_answer"
 	StateAdminDeleteAnswer     = "admin_delete_answer"
 	StateAdminEditSettingValue = "admin_edit_setting_value"
+	StateAdminUserList         = "admin_user_list"
+	StateAdminUserDetails      = "admin_user_details"
 )

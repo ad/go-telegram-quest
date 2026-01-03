@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"fmt"
 	"testing"
 
 	"github.com/ad/go-telegram-quest/internal/db"
@@ -22,6 +23,7 @@ func setupTestDB(t *testing.T) (*db.DBQueue, func()) {
 			first_name TEXT,
 			last_name TEXT,
 			username TEXT,
+			is_blocked BOOLEAN DEFAULT FALSE,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
@@ -355,4 +357,201 @@ func TestProperty9_AdminDecisionStatusUpdates(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestProperty18_BlockedUserShadowBan(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		userRepo := db.NewUserRepository(queue)
+		progressRepo := db.NewProgressRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+
+		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
+
+		user := &models.User{
+			ID:        userID,
+			FirstName: "Test",
+		}
+		if err := userRepo.CreateOrUpdate(user); err != nil {
+			rt.Fatal(err)
+		}
+
+		step := &models.Step{
+			StepOrder:    1,
+			Text:         "Test step",
+			AnswerType:   models.AnswerTypeText,
+			HasAutoCheck: false,
+			IsActive:     true,
+			IsDeleted:    false,
+		}
+		stepID, err := stepRepo.Create(step)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		progress := &models.UserProgress{
+			UserID: userID,
+			StepID: stepID,
+			Status: models.StatusPending,
+		}
+		if err := progressRepo.Create(progress); err != nil {
+			rt.Fatal(err)
+		}
+
+		if err := userRepo.BlockUser(userID); err != nil {
+			rt.Fatal(err)
+		}
+
+		isBlocked, err := userRepo.IsBlocked(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if !isBlocked {
+			rt.Error("User should be blocked after BlockUser call")
+		}
+
+		progressAfterBlock, err := progressRepo.GetByUserAndStep(userID, stepID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if progressAfterBlock.Status != models.StatusPending {
+			rt.Errorf("Blocked user's progress should not change, got status '%s'", progressAfterBlock.Status)
+		}
+	})
+}
+
+func TestProperty17_UserBlockStatusToggle(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		userRepo := db.NewUserRepository(queue)
+
+		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
+
+		user := &models.User{
+			ID:        userID,
+			FirstName: "Test",
+		}
+		if err := userRepo.CreateOrUpdate(user); err != nil {
+			rt.Fatal(err)
+		}
+
+		isBlocked, err := userRepo.IsBlocked(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if isBlocked {
+			rt.Error("New user should not be blocked")
+		}
+
+		if err := userRepo.BlockUser(userID); err != nil {
+			rt.Fatal(err)
+		}
+
+		isBlocked, err = userRepo.IsBlocked(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if !isBlocked {
+			rt.Error("User should be blocked after BlockUser")
+		}
+
+		if err := userRepo.BlockUser(userID); err != nil {
+			rt.Fatal(err)
+		}
+		isBlocked, err = userRepo.IsBlocked(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if !isBlocked {
+			rt.Error("BlockUser should be idempotent")
+		}
+
+		if err := userRepo.UnblockUser(userID); err != nil {
+			rt.Fatal(err)
+		}
+
+		isBlocked, err = userRepo.IsBlocked(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if isBlocked {
+			rt.Error("User should not be blocked after UnblockUser")
+		}
+
+		if err := userRepo.UnblockUser(userID); err != nil {
+			rt.Fatal(err)
+		}
+		isBlocked, err = userRepo.IsBlocked(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if isBlocked {
+			rt.Error("UnblockUser should be idempotent")
+		}
+	})
+}
+
+func TestProperty21_BlockButtonConditionalDisplay(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
+		isBlocked := rapid.Bool().Draw(rt, "isBlocked")
+
+		user := &models.User{
+			ID:        userID,
+			IsBlocked: isBlocked,
+		}
+
+		keyboard := BuildUserDetailsKeyboard(user)
+
+		if keyboard == nil {
+			rt.Fatal("Keyboard should not be nil")
+		}
+
+		if len(keyboard.InlineKeyboard) < 2 {
+			rt.Fatal("Keyboard should have at least 2 rows")
+		}
+
+		blockRow := keyboard.InlineKeyboard[0]
+		if len(blockRow) != 1 {
+			rt.Fatalf("Block row should have exactly 1 button, got %d", len(blockRow))
+		}
+
+		blockBtn := blockRow[0]
+
+		if isBlocked {
+			if blockBtn.Text != "✅ Разблокировать" {
+				rt.Errorf("Expected '✅ Разблокировать' for blocked user, got '%s'", blockBtn.Text)
+			}
+			if !containsUserID(blockBtn.CallbackData, "unblock:", userID) {
+				rt.Errorf("Expected callback 'unblock:%d', got '%s'", userID, blockBtn.CallbackData)
+			}
+		} else {
+			if blockBtn.Text != "🚫 Заблокировать" {
+				rt.Errorf("Expected '🚫 Заблокировать' for non-blocked user, got '%s'", blockBtn.Text)
+			}
+			if !containsUserID(blockBtn.CallbackData, "block:", userID) {
+				rt.Errorf("Expected callback 'block:%d', got '%s'", userID, blockBtn.CallbackData)
+			}
+		}
+
+		backRow := keyboard.InlineKeyboard[1]
+		if len(backRow) != 1 {
+			rt.Fatalf("Back row should have exactly 1 button, got %d", len(backRow))
+		}
+		if backRow[0].Text != "⬅️ Назад" {
+			rt.Errorf("Expected back button text '⬅️ Назад', got '%s'", backRow[0].Text)
+		}
+		if backRow[0].CallbackData != "admin:userlist" {
+			rt.Errorf("Expected back callback 'admin:userlist', got '%s'", backRow[0].CallbackData)
+		}
+	})
+}
+
+func containsUserID(callbackData, prefix string, userID int64) bool {
+	expected := prefix + fmt.Sprintf("%d", userID)
+	return callbackData == expected
 }

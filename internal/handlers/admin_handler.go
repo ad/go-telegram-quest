@@ -9,6 +9,7 @@ import (
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/fsm"
 	"github.com/ad/go-telegram-quest/internal/models"
+	"github.com/ad/go-telegram-quest/internal/services"
 	"github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
 )
@@ -20,6 +21,8 @@ type AdminHandler struct {
 	answerRepo     *db.AnswerRepository
 	settingsRepo   *db.SettingsRepository
 	adminStateRepo *db.AdminStateRepository
+	userManager    *services.UserManager
+	userRepo       *db.UserRepository
 }
 
 func NewAdminHandler(
@@ -29,6 +32,8 @@ func NewAdminHandler(
 	answerRepo *db.AnswerRepository,
 	settingsRepo *db.SettingsRepository,
 	adminStateRepo *db.AdminStateRepository,
+	userManager *services.UserManager,
+	userRepo *db.UserRepository,
 ) *AdminHandler {
 	return &AdminHandler{
 		bot:            b,
@@ -37,6 +42,8 @@ func NewAdminHandler(
 		answerRepo:     answerRepo,
 		settingsRepo:   settingsRepo,
 		adminStateRepo: adminStateRepo,
+		userManager:    userManager,
+		userRepo:       userRepo,
 	}
 }
 
@@ -87,6 +94,8 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.startAddStep(ctx, chatID, messageID)
 	case data == "admin:list_steps":
 		h.showStepsList(ctx, chatID, messageID)
+	case data == "admin:users":
+		h.showUserList(ctx, chatID, messageID, 1)
 	case data == "admin:settings":
 		h.showSettingsMenu(ctx, chatID, messageID)
 	case strings.HasPrefix(data, "admin:edit_step:"):
@@ -105,6 +114,16 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.startDeleteAnswer(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:edit_setting:"):
 		h.startEditSetting(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "userlist:"):
+		h.handleUserListNavigation(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "user:"):
+		h.showUserDetails(ctx, chatID, messageID, data)
+	case data == "admin:userlist":
+		h.showUserList(ctx, chatID, messageID, 1)
+	case strings.HasPrefix(data, "block:"):
+		h.handleBlockFromDetails(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "unblock:"):
+		h.handleUnblockFromDetails(ctx, chatID, messageID, data)
 	case data == "admin:step_type:text":
 		h.setStepType(ctx, chatID, messageID, models.AnswerTypeText)
 	case data == "admin:step_type:image":
@@ -165,6 +184,7 @@ func (h *AdminHandler) showAdminMenu(ctx context.Context, chatID int64, messageI
 		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
 			{{Text: "➕ Добавить шаг", CallbackData: "admin:add_step"}},
 			{{Text: "📋 Список шагов", CallbackData: "admin:list_steps"}},
+			{{Text: "👥 Участники", CallbackData: "admin:users"}},
 			{{Text: "⚙️ Настройки", CallbackData: "admin:settings"}},
 		},
 	}
@@ -795,4 +815,169 @@ func truncateText(text string, maxLen int) string {
 		return text
 	}
 	return string(runes[:maxLen]) + "..."
+}
+
+func (h *AdminHandler) showUserList(ctx context.Context, chatID int64, messageID int, page int) {
+	result, err := h.userManager.GetUserListPage(page)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при получении списка пользователей", nil)
+		return
+	}
+
+	if len(result.Users) == 0 {
+		keyboard := &tgmodels.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+				{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
+			},
+		}
+		h.editOrSend(ctx, chatID, messageID, "👥 Участников пока нет", keyboard)
+		return
+	}
+
+	keyboard := h.buildUserListKeyboard(result)
+	text := fmt.Sprintf("👥 Участники (стр. %d/%d)", result.CurrentPage, result.TotalPages)
+	h.editOrSend(ctx, chatID, messageID, text, keyboard)
+}
+
+func (h *AdminHandler) buildUserListKeyboard(page *services.UserListPage) *tgmodels.InlineKeyboardMarkup {
+	var rows [][]tgmodels.InlineKeyboardButton
+
+	for i := 0; i < len(page.Users); i += 2 {
+		row := []tgmodels.InlineKeyboardButton{
+			{Text: page.Users[i].DisplayName(), CallbackData: fmt.Sprintf("user:%d", page.Users[i].ID)},
+		}
+		if i+1 < len(page.Users) {
+			row = append(row, tgmodels.InlineKeyboardButton{
+				Text:         page.Users[i+1].DisplayName(),
+				CallbackData: fmt.Sprintf("user:%d", page.Users[i+1].ID),
+			})
+		}
+		rows = append(rows, row)
+	}
+
+	var navRow []tgmodels.InlineKeyboardButton
+	if page.HasPrev {
+		navRow = append(navRow, tgmodels.InlineKeyboardButton{Text: "◀️", CallbackData: fmt.Sprintf("userlist:%d", page.CurrentPage-1)})
+	}
+	if page.HasNext {
+		navRow = append(navRow, tgmodels.InlineKeyboardButton{Text: "▶️", CallbackData: fmt.Sprintf("userlist:%d", page.CurrentPage+1)})
+	}
+	if len(navRow) > 0 {
+		rows = append(rows, navRow)
+	}
+
+	rows = append(rows, []tgmodels.InlineKeyboardButton{
+		{Text: "⬅️ Назад", CallbackData: "admin:menu"},
+	})
+
+	return &tgmodels.InlineKeyboardMarkup{InlineKeyboard: rows}
+}
+
+func (h *AdminHandler) handleUserListNavigation(ctx context.Context, chatID int64, messageID int, data string) {
+	page, _ := parseInt64(strings.TrimPrefix(data, "userlist:"))
+	if page < 1 {
+		page = 1
+	}
+	h.showUserList(ctx, chatID, messageID, int(page))
+}
+
+func (h *AdminHandler) showUserDetails(ctx context.Context, chatID int64, messageID int, data string) {
+	userID, _ := parseInt64(strings.TrimPrefix(data, "user:"))
+	if userID == 0 {
+		return
+	}
+
+	details, err := h.userManager.GetUserDetails(userID)
+	if err != nil || details == nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Пользователь не найден", nil)
+		return
+	}
+
+	text := FormatUserDetails(details)
+	keyboard := BuildUserDetailsKeyboard(details.User)
+	h.editOrSend(ctx, chatID, messageID, text, keyboard)
+}
+
+func FormatUserDetails(details *services.UserDetails) string {
+	var sb strings.Builder
+	sb.WriteString("👤 Информация о пользователе\n\n")
+
+	if details.User.FirstName != "" || details.User.LastName != "" {
+		name := strings.TrimSpace(details.User.FirstName + " " + details.User.LastName)
+		fmt.Fprintf(&sb, "📛 Имя: %s\n", name)
+	}
+
+	if details.User.Username != "" {
+		fmt.Fprintf(&sb, "🔗 Username: @%s\n", details.User.Username)
+	}
+
+	fmt.Fprintf(&sb, "🆔 ID: %d\n\n", details.User.ID)
+
+	if details.IsCompleted {
+		sb.WriteString("📊 Прогресс: ✅ Квест завершён\n")
+	} else if details.CurrentStep != nil {
+		fmt.Fprintf(&sb, "📊 Прогресс: Шаг %d\n", details.CurrentStep.StepOrder)
+		statusText := map[models.ProgressStatus]string{
+			models.StatusPending:       "⏳ Ожидает ответа",
+			models.StatusWaitingReview: "🔍 На проверке",
+			models.StatusApproved:      "✅ Одобрен",
+			models.StatusRejected:      "❌ Отклонён",
+		}[details.Status]
+		fmt.Fprintf(&sb, "📋 Статус: %s\n", statusText)
+	} else {
+		sb.WriteString("📊 Прогресс: Не начат\n")
+	}
+
+	sb.WriteString("\n")
+	if details.User.IsBlocked {
+		sb.WriteString("🚫 Статус: Заблокирован")
+	} else {
+		sb.WriteString("✅ Статус: Активен")
+	}
+
+	return sb.String()
+}
+
+func BuildUserDetailsKeyboard(user *models.User) *tgmodels.InlineKeyboardMarkup {
+	var blockBtn tgmodels.InlineKeyboardButton
+	if user.IsBlocked {
+		blockBtn = tgmodels.InlineKeyboardButton{Text: "✅ Разблокировать", CallbackData: fmt.Sprintf("unblock:%d", user.ID)}
+	} else {
+		blockBtn = tgmodels.InlineKeyboardButton{Text: "🚫 Заблокировать", CallbackData: fmt.Sprintf("block:%d", user.ID)}
+	}
+
+	return &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{blockBtn},
+			{{Text: "⬅️ Назад", CallbackData: "admin:userlist"}},
+		},
+	}
+}
+
+func (h *AdminHandler) handleBlockFromDetails(ctx context.Context, chatID int64, messageID int, data string) {
+	userID, _ := parseInt64(strings.TrimPrefix(data, "block:"))
+	if userID == 0 {
+		return
+	}
+
+	if err := h.userRepo.BlockUser(userID); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при блокировке пользователя", nil)
+		return
+	}
+
+	h.showUserDetails(ctx, chatID, messageID, fmt.Sprintf("user:%d", userID))
+}
+
+func (h *AdminHandler) handleUnblockFromDetails(ctx context.Context, chatID int64, messageID int, data string) {
+	userID, _ := parseInt64(strings.TrimPrefix(data, "unblock:"))
+	if userID == 0 {
+		return
+	}
+
+	if err := h.userRepo.UnblockUser(userID); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при разблокировке пользователя", nil)
+		return
+	}
+
+	h.showUserDetails(ctx, chatID, messageID, fmt.Sprintf("user:%d", userID))
 }

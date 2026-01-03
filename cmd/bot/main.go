@@ -78,6 +78,7 @@ func main() {
 	answerChecker := services.NewAnswerChecker(answerRepo, progressRepo, userRepo)
 	msgManager := services.NewMessageManager(b, chatStateRepo, errorManager)
 	statsService := services.NewStatisticsService(dbQueue, stepRepo, progressRepo, userRepo)
+	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo)
 
 	handler := handlers.NewBotHandler(
 		b,
@@ -95,6 +96,7 @@ func main() {
 		chatStateRepo,
 		adminMessagesRepo,
 		adminStateRepo,
+		userManager,
 	)
 
 	b.RegisterHandlerMatchFunc(func(update *tgmodels.Update) bool {

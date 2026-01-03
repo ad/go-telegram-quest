@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS users (
     first_name TEXT,
     last_name TEXT,
     username TEXT,
+    is_blocked BOOLEAN DEFAULT FALSE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -98,6 +99,10 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
     ('wrong_answer_message', '❌ Неверно, попробуйте ещё раз');
 `
 
+const migrations = `
+ALTER TABLE users ADD COLUMN is_blocked BOOLEAN DEFAULT FALSE;
+`
+
 func InitSchema(db *sql.DB) error {
 	_, err := db.Exec(schema)
 	if err != nil {
@@ -105,5 +110,11 @@ func InitSchema(db *sql.DB) error {
 	}
 
 	_, err = db.Exec(defaultSettings)
-	return err
+	if err != nil {
+		return err
+	}
+
+	db.Exec(migrations)
+
+	return nil
 }

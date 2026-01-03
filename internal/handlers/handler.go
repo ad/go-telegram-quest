@@ -46,8 +46,9 @@ func NewBotHandler(
 	chatStateRepo *db.ChatStateRepository,
 	adminMessagesRepo *db.AdminMessagesRepository,
 	adminStateRepo *db.AdminStateRepository,
+	userManager *services.UserManager,
 ) *BotHandler {
-	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo)
+	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo)
 
 	return &BotHandler{
 		bot:               b,
@@ -102,6 +103,11 @@ func (h *BotHandler) handleMessage(ctx context.Context, msg *tgmodels.Message) {
 		}
 	}
 
+	if h.isUserBlocked(userID) {
+		h.sendShadowBanResponse(ctx, msg.Chat.ID)
+		return
+	}
+
 	if len(msg.Photo) > 0 {
 		h.handleImageAnswer(ctx, msg)
 		return
@@ -116,6 +122,26 @@ func (h *BotHandler) handleMessage(ctx context.Context, msg *tgmodels.Message) {
 	}
 }
 
+func (h *BotHandler) isUserBlocked(userID int64) bool {
+	blocked, err := h.userRepo.IsBlocked(userID)
+	if err != nil {
+		return false
+	}
+	return blocked
+}
+
+func (h *BotHandler) sendShadowBanResponse(ctx context.Context, chatID int64) {
+	settings, _ := h.settingsRepo.GetAll()
+	wrongMsg := "❌ Неверно, попробуйте ещё раз"
+	if settings != nil && settings.WrongAnswerMessage != "" {
+		wrongMsg = settings.WrongAnswerMessage
+	}
+	h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+		ChatID: chatID,
+		Text:   wrongMsg,
+	})
+}
+
 func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
 	if callback.From.ID != h.adminID {
 		return
@@ -127,6 +153,8 @@ func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.Call
 
 	if strings.HasPrefix(callback.Data, "approve:") || strings.HasPrefix(callback.Data, "reject:") {
 		h.handleAdminDecision(ctx, callback)
+	} else if strings.HasPrefix(callback.Data, "block:") {
+		h.handleBlockUser(ctx, callback)
 	}
 }
 
@@ -422,6 +450,59 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 	})
 }
 
+func (h *BotHandler) handleBlockUser(ctx context.Context, callback *tgmodels.CallbackQuery) {
+	parts := strings.Split(callback.Data, ":")
+	if len(parts) != 2 {
+		return
+	}
+
+	userID, _ := parseInt64(parts[1])
+	if userID == 0 {
+		return
+	}
+
+	if err := h.userRepo.BlockUser(userID); err != nil {
+		h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: callback.ID,
+			Text:            "Ошибка при блокировке",
+		})
+		return
+	}
+
+	user, _ := h.userRepo.GetByID(userID)
+	displayName := fmt.Sprintf("[%d]", userID)
+	if user != nil {
+		displayName = user.DisplayName()
+	}
+
+	msg := callback.Message.Message
+	if msg != nil {
+		var newText string
+		if len(msg.Photo) > 0 {
+			newText = fmt.Sprintf("🚫 Заблокирован\n👤 %s", displayName)
+			h.bot.EditMessageCaption(ctx, &bot.EditMessageCaptionParams{
+				ChatID:      msg.Chat.ID,
+				MessageID:   msg.ID,
+				Caption:     newText,
+				ReplyMarkup: nil,
+			})
+		} else {
+			newText = fmt.Sprintf("🚫 Заблокирован\n👤 %s", displayName)
+			h.bot.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:      msg.Chat.ID,
+				MessageID:   msg.ID,
+				Text:        newText,
+				ReplyMarkup: nil,
+			})
+		}
+	}
+
+	h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: callback.ID,
+		Text:            "Пользователь заблокирован",
+	})
+}
+
 func (h *BotHandler) editCallbackMessage(ctx context.Context, callback *tgmodels.CallbackQuery, newText string) {
 	msg := callback.Message.Message
 	if msg == nil {
@@ -488,6 +569,9 @@ func (h *BotHandler) sendToAdminForReview(ctx context.Context, userID int64, ste
 			{
 				{Text: "✅ Правильно", CallbackData: fmt.Sprintf("approve:%d:%d", userID, step.ID)},
 				{Text: "❌ Ошибка", CallbackData: fmt.Sprintf("reject:%d:%d", userID, step.ID)},
+			},
+			{
+				{Text: "🚫 Заблокировать", CallbackData: fmt.Sprintf("block:%d", userID)},
 			},
 		},
 	}

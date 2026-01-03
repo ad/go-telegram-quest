@@ -32,13 +32,13 @@ func (r *UserRepository) CreateOrUpdate(user *models.User) error {
 func (r *UserRepository) GetByID(id int64) (*models.User, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		row := db.QueryRow(`
-			SELECT id, first_name, last_name, username, created_at
+			SELECT id, first_name, last_name, username, COALESCE(is_blocked, 0), created_at
 			FROM users WHERE id = ?
 		`, id)
 
 		var user models.User
 		var firstName, lastName, username sql.NullString
-		err := row.Scan(&user.ID, &firstName, &lastName, &username, &user.CreatedAt)
+		err := row.Scan(&user.ID, &firstName, &lastName, &username, &user.IsBlocked, &user.CreatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -56,7 +56,7 @@ func (r *UserRepository) GetByID(id int64) (*models.User, error) {
 func (r *UserRepository) GetAll() ([]*models.User, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		rows, err := db.Query(`
-			SELECT id, first_name, last_name, username, created_at
+			SELECT id, first_name, last_name, username, COALESCE(is_blocked, 0), created_at
 			FROM users ORDER BY created_at
 		`)
 		if err != nil {
@@ -68,7 +68,7 @@ func (r *UserRepository) GetAll() ([]*models.User, error) {
 		for rows.Next() {
 			var user models.User
 			var firstName, lastName, username sql.NullString
-			if err := rows.Scan(&user.ID, &firstName, &lastName, &username, &user.CreatedAt); err != nil {
+			if err := rows.Scan(&user.ID, &firstName, &lastName, &username, &user.IsBlocked, &user.CreatedAt); err != nil {
 				return nil, err
 			}
 			user.FirstName = firstName.String
@@ -82,4 +82,35 @@ func (r *UserRepository) GetAll() ([]*models.User, error) {
 		return nil, err
 	}
 	return result.([]*models.User), nil
+}
+
+func (r *UserRepository) BlockUser(userID int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`UPDATE users SET is_blocked = 1 WHERE id = ?`, userID)
+		return nil, err
+	})
+	return err
+}
+
+func (r *UserRepository) UnblockUser(userID int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`UPDATE users SET is_blocked = 0 WHERE id = ?`, userID)
+		return nil, err
+	})
+	return err
+}
+
+func (r *UserRepository) IsBlocked(userID int64) (bool, error) {
+	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var isBlocked bool
+		err := db.QueryRow(`SELECT COALESCE(is_blocked, 0) FROM users WHERE id = ?`, userID).Scan(&isBlocked)
+		if err != nil {
+			return false, err
+		}
+		return isBlocked, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.(bool), nil
 }

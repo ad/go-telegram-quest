@@ -22,6 +22,7 @@ func setupTestDB(t *testing.T) (*db.DBQueue, func()) {
 			first_name TEXT,
 			last_name TEXT,
 			username TEXT,
+			is_blocked BOOLEAN DEFAULT FALSE,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
