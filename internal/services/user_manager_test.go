@@ -11,13 +11,15 @@ import (
 
 func TestProperty19_UserListPagination(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
-		queue, cleanup := setupTestDB(t)
+		queue, cleanup := setupTestDBForUserStats(t)
 		defer cleanup()
 
 		userRepo := db.NewUserRepository(queue)
 		stepRepo := db.NewStepRepository(queue)
 		progressRepo := db.NewProgressRepository(queue)
-		manager := NewUserManager(userRepo, stepRepo, progressRepo)
+		answerRepo := db.NewAnswerRepository(queue)
+		statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
+		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, statsService)
 
 		numUsers := rapid.IntRange(0, 35).Draw(rt, "numUsers")
 		for i := 1; i <= numUsers; i++ {
@@ -75,13 +77,15 @@ func TestProperty19_UserListPagination(t *testing.T) {
 
 func TestProperty20_UserDetailsCompleteness(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
-		queue, cleanup := setupTestDB(t)
+		queue, cleanup := setupTestDBForUserStats(t)
 		defer cleanup()
 
 		userRepo := db.NewUserRepository(queue)
 		stepRepo := db.NewStepRepository(queue)
 		progressRepo := db.NewProgressRepository(queue)
-		manager := NewUserManager(userRepo, stepRepo, progressRepo)
+		answerRepo := db.NewAnswerRepository(queue)
+		statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
+		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, statsService)
 
 		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
 		firstName := rapid.StringMatching(`[A-Za-z]{0,10}`).Draw(rt, "firstName")

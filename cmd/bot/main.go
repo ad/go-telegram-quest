@@ -78,7 +78,7 @@ func main() {
 	answerChecker := services.NewAnswerChecker(answerRepo, progressRepo, userRepo)
 	msgManager := services.NewMessageManager(b, chatStateRepo, errorManager)
 	statsService := services.NewStatisticsService(dbQueue, stepRepo, progressRepo, userRepo)
-	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo)
+	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, statsService)
 
 	handler := handlers.NewBotHandler(
 		b,

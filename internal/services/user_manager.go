@@ -2,6 +2,7 @@ package services
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
@@ -22,19 +23,43 @@ type UserDetails struct {
 	CurrentStep *models.Step
 	Status      models.ProgressStatus
 	IsCompleted bool
+	Statistics  *UserStatistics
+}
+
+type UserStatistics struct {
+	FirstAnswerTime       *time.Time
+	LastAnswerTime        *time.Time
+	CompletionTime        *time.Duration
+	TotalAnswers          int
+	ApprovedSteps         int
+	Accuracy              int
+	AverageResponseTime   *time.Duration
+	TimeOnCurrentStep     *time.Duration
+	RegistrationDate      time.Time
+	TimeSinceRegistration time.Duration
+	StepAttempts          []StepAttempt
+	LeaderboardPosition   int
+	TotalUsers            int
+}
+
+type StepAttempt struct {
+	StepOrder int
+	Attempts  int
 }
 
 type UserManager struct {
-	userRepo     *db.UserRepository
-	stepRepo     *db.StepRepository
-	progressRepo *db.ProgressRepository
+	userRepo       *db.UserRepository
+	stepRepo       *db.StepRepository
+	progressRepo   *db.ProgressRepository
+	statisticsCalc *UserStatisticsCalculator
 }
 
-func NewUserManager(userRepo *db.UserRepository, stepRepo *db.StepRepository, progressRepo *db.ProgressRepository) *UserManager {
+func NewUserManager(userRepo *db.UserRepository, stepRepo *db.StepRepository, progressRepo *db.ProgressRepository, answerRepo *db.AnswerRepository, statisticsService *StatisticsService) *UserManager {
 	return &UserManager{
-		userRepo:     userRepo,
-		stepRepo:     stepRepo,
-		progressRepo: progressRepo,
+		userRepo:       userRepo,
+		stepRepo:       stepRepo,
+		progressRepo:   progressRepo,
+		statisticsCalc: NewUserStatisticsCalculator(answerRepo, progressRepo, statisticsService),
 	}
 }
 
@@ -90,9 +115,16 @@ func (m *UserManager) GetUserDetails(userID int64) (*UserDetails, error) {
 	}
 
 	if len(activeSteps) == 0 {
+		// Calculate statistics even when no active steps
+		statistics, err := m.statisticsCalc.Calculate(user, nil)
+		if err != nil {
+			return nil, err
+		}
+
 		return &UserDetails{
 			User:        user,
 			IsCompleted: true,
+			Statistics:  statistics,
 		}, nil
 	}
 
@@ -110,26 +142,34 @@ func (m *UserManager) GetUserDetails(userID int64) (*UserDetails, error) {
 		}
 	}
 
+	var currentStep *models.Step
+	var status models.ProgressStatus = models.StatusPending
+	isCompleted := true
+
 	for _, step := range activeSteps {
 		if approvedSteps[step.ID] {
 			continue
 		}
 
-		status := models.StatusPending
+		currentStep = step
+		isCompleted = false
 		if progress, exists := progressByStep[step.ID]; exists {
 			status = progress.Status
 		}
+		break
+	}
 
-		return &UserDetails{
-			User:        user,
-			CurrentStep: step,
-			Status:      status,
-			IsCompleted: false,
-		}, nil
+	// Calculate statistics with current step information
+	statistics, err := m.statisticsCalc.Calculate(user, currentStep)
+	if err != nil {
+		return nil, err
 	}
 
 	return &UserDetails{
 		User:        user,
-		IsCompleted: true,
+		CurrentStep: currentStep,
+		Status:      status,
+		IsCompleted: isCompleted,
+		Statistics:  statistics,
 	}, nil
 }

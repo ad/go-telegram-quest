@@ -928,6 +928,12 @@ func FormatUserDetails(details *services.UserDetails) string {
 		sb.WriteString("📊 Прогресс: Не начат\n")
 	}
 
+	// Add statistics between user info and status
+	if details.Statistics != nil {
+		sb.WriteString("\n")
+		sb.WriteString(services.FormatUserStatistics(details.Statistics, details.IsCompleted))
+	}
+
 	sb.WriteString("\n")
 	if details.User.IsBlocked {
 		sb.WriteString("🚫 Статус: Заблокирован")

@@ -124,6 +124,56 @@ type userWithMaxStep struct {
 	maxStep int
 }
 
+func (s *StatisticsService) GetUserLeaderboardPosition(userID int64) (int, int, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var userMaxStep int
+		var userCreatedAt string
+		err := db.QueryRow(`
+			SELECT COALESCE(MAX(st.step_order), 0), u.created_at
+			FROM users u
+			LEFT JOIN user_progress p ON u.id = p.user_id AND p.status = 'approved'
+			LEFT JOIN steps st ON p.step_id = st.id AND st.is_active = TRUE AND st.is_deleted = FALSE
+			WHERE u.id = ?
+			GROUP BY u.id, u.created_at
+		`, userID).Scan(&userMaxStep, &userCreatedAt)
+		if err != nil {
+			return nil, err
+		}
+
+		var position int
+		err = db.QueryRow(`
+			SELECT COUNT(*) + 1 as position
+			FROM (
+				SELECT u.id, COALESCE(MAX(st.step_order), 0) as max_step, u.created_at
+				FROM users u
+				LEFT JOIN user_progress p ON u.id = p.user_id AND p.status = 'approved'
+				LEFT JOIN steps st ON p.step_id = st.id AND st.is_active = TRUE AND st.is_deleted = FALSE
+				WHERE u.id != ?
+				GROUP BY u.id, u.created_at
+			) ranked
+			WHERE max_step > ? 
+			   OR (max_step = ? AND created_at < ?)
+		`, userID, userMaxStep, userMaxStep, userCreatedAt).Scan(&position)
+		if err != nil {
+			return nil, err
+		}
+
+		var total int
+		err = db.QueryRow(`SELECT COUNT(*) FROM users`).Scan(&total)
+		if err != nil {
+			return nil, err
+		}
+
+		return []int{position, total}, nil
+	})
+	if err != nil {
+		return 0, 0, err
+	}
+
+	results := result.([]int)
+	return results[0], results[1], nil
+}
+
 func sortLeadersByMaxStep(users []userWithMaxStep) []*models.User {
 	sort.Slice(users, func(i, j int) bool {
 		if users[i].maxStep != users[j].maxStep {
