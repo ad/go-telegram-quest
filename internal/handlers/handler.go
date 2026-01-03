@@ -313,6 +313,9 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 }
 
 func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step *models.Step, percentage int) {
+	// Удаляем предыдущие сообщения пользователя и реакции (включая сообщения о неверных ответах)
+	h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
+
 	h.progressRepo.Update(&models.UserProgress{
 		UserID: userID,
 		StepID: step.ID,

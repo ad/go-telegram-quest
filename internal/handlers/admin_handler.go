@@ -253,7 +253,14 @@ func (h *AdminHandler) showStepsList(ctx context.Context, chatID int64, messageI
 		if !step.IsActive {
 			status = "⏸️"
 		}
-		text := fmt.Sprintf("%s Шаг %d", status, step.StepOrder)
+
+		// Используем начало текста вопроса вместо номера шага
+		stepText := step.Text
+		if len([]rune(stepText)) > 30 {
+			stepText = string([]rune(stepText)[:30]) + "..."
+		}
+		text := fmt.Sprintf("%s %s", status, stepText)
+
 		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
 			{Text: text, CallbackData: fmt.Sprintf("admin:edit_step:%d", step.ID)},
 		})
