@@ -242,9 +242,10 @@ func (h *BotHandler) sendStep(ctx context.Context, userID int64, step *models.St
 	}
 
 	answerHint := ""
-	if step.AnswerType == models.AnswerTypeText {
+	switch step.AnswerType {
+	case models.AnswerTypeText:
 		answerHint = "\n\n📝 Ответьте текстом"
-	} else if step.AnswerType == models.AnswerTypeImage {
+	case models.AnswerTypeImage:
 		answerHint = "\n\n📷 Отправьте фото"
 	}
 
@@ -441,7 +442,8 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 		displayName = user.DisplayName()
 	}
 
-	if action == "approve" {
+	switch action {
+	case "approve":
 		progress.Status = models.StatusApproved
 		if err := h.progressRepo.Update(progress); err != nil {
 			return
@@ -451,7 +453,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 
 		percentage, _ := h.answerChecker.CheckTextAnswer(stepID, "")
 		h.handleCorrectAnswer(ctx, userID, step, percentage.Percentage)
-	} else if action == "reject" {
+	case "reject":
 		progress.Status = models.StatusRejected
 		if err := h.progressRepo.Update(progress); err != nil {
 			return

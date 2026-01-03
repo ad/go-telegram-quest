@@ -117,13 +117,14 @@ func TestParseInt64FromMoveCommands(t *testing.T) {
 
 	for _, test := range tests {
 		var result int64
-		if test.input == "admin:move_up:123" {
+		switch test.input {
+		case "admin:move_up:123":
 			result, _ = parseInt64("123")
-		} else if test.input == "admin:move_down:456" {
+		case "admin:move_down:456":
 			result, _ = parseInt64("456")
-		} else if test.input == "admin:move_up:0" {
+		case "admin:move_up:0":
 			result, _ = parseInt64("0")
-		} else {
+		default:
 			result, _ = parseInt64("")
 		}
 
