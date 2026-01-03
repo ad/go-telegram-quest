@@ -274,12 +274,12 @@ func (h *BotHandler) getProgressText(userID int64) string {
 		return ""
 	}
 
-	barLength := int(percentage / 10)
-	if barLength > 10 {
-		barLength = 10
+	barLength := int(percentage * 30 / 100)
+	if barLength > 30 {
+		barLength = 30
 	}
 
-	return strings.Repeat("▰", barLength) + strings.Repeat("▱", 10-barLength)
+	return strings.Repeat("▰", barLength) + strings.Repeat("▱", 30-barLength)
 }
 
 func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message) {
