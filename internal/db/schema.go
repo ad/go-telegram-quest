@@ -96,7 +96,11 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
     ('welcome_message', 'Добро пожаловать в квест!'),
     ('final_message', 'Поздравляем! Вы прошли квест!'),
     ('correct_answer_message', '✅ Правильно!'),
-    ('wrong_answer_message', '❌ Неверно, попробуйте ещё раз');
+    ('wrong_answer_message', '❌ Неверно, попробуйте ещё раз'),
+    ('quest_state', 'not_started'),
+    ('quest_not_started_message', 'Квест ещё не начался. Ожидайте объявления о старте!'),
+    ('quest_paused_message', 'Квест временно приостановлен. Скоро мы продолжим!'),
+    ('quest_completed_message', 'Квест завершён! Спасибо за участие!');
 `
 
 const migrations = `

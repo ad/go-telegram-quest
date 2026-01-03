@@ -13,21 +13,22 @@ import (
 )
 
 type BotHandler struct {
-	bot               *bot.Bot
-	adminID           int64
-	errorManager      *services.ErrorManager
-	stateResolver     *services.StateResolver
-	answerChecker     *services.AnswerChecker
-	msgManager        *services.MessageManager
-	statsService      *services.StatisticsService
-	userRepo          *db.UserRepository
-	stepRepo          *db.StepRepository
-	progressRepo      *db.ProgressRepository
-	answerRepo        *db.AnswerRepository
-	settingsRepo      *db.SettingsRepository
-	chatStateRepo     *db.ChatStateRepository
-	adminMessagesRepo *db.AdminMessagesRepository
-	adminHandler      *AdminHandler
+	bot                  *bot.Bot
+	adminID              int64
+	errorManager         *services.ErrorManager
+	stateResolver        *services.StateResolver
+	answerChecker        *services.AnswerChecker
+	msgManager           *services.MessageManager
+	statsService         *services.StatisticsService
+	userRepo             *db.UserRepository
+	stepRepo             *db.StepRepository
+	progressRepo         *db.ProgressRepository
+	answerRepo           *db.AnswerRepository
+	settingsRepo         *db.SettingsRepository
+	chatStateRepo        *db.ChatStateRepository
+	adminMessagesRepo    *db.AdminMessagesRepository
+	adminHandler         *AdminHandler
+	questStateMiddleware *services.QuestStateMiddleware
 }
 
 func NewBotHandler(
@@ -47,25 +48,28 @@ func NewBotHandler(
 	adminMessagesRepo *db.AdminMessagesRepository,
 	adminStateRepo *db.AdminStateRepository,
 	userManager *services.UserManager,
+	questStateManager *services.QuestStateManager,
 ) *BotHandler {
-	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo)
+	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo, questStateManager)
+	questStateMiddleware := services.NewQuestStateMiddleware(questStateManager, adminID)
 
 	return &BotHandler{
-		bot:               b,
-		adminID:           adminID,
-		errorManager:      errorManager,
-		stateResolver:     stateResolver,
-		answerChecker:     answerChecker,
-		msgManager:        msgManager,
-		statsService:      statsService,
-		userRepo:          userRepo,
-		stepRepo:          stepRepo,
-		progressRepo:      progressRepo,
-		answerRepo:        answerRepo,
-		settingsRepo:      settingsRepo,
-		chatStateRepo:     chatStateRepo,
-		adminMessagesRepo: adminMessagesRepo,
-		adminHandler:      adminHandler,
+		bot:                  b,
+		adminID:              adminID,
+		errorManager:         errorManager,
+		stateResolver:        stateResolver,
+		answerChecker:        answerChecker,
+		msgManager:           msgManager,
+		statsService:         statsService,
+		userRepo:             userRepo,
+		stepRepo:             stepRepo,
+		progressRepo:         progressRepo,
+		answerRepo:           answerRepo,
+		settingsRepo:         settingsRepo,
+		chatStateRepo:        chatStateRepo,
+		adminMessagesRepo:    adminMessagesRepo,
+		adminHandler:         adminHandler,
+		questStateMiddleware: questStateMiddleware,
 	}
 }
 
@@ -101,6 +105,15 @@ func (h *BotHandler) handleMessage(ctx context.Context, msg *tgmodels.Message) {
 		if h.adminHandler.HandleCommand(ctx, msg) {
 			return
 		}
+	}
+
+	shouldProcess, notification := h.questStateMiddleware.ShouldProcessMessage(userID)
+	if !shouldProcess {
+		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   notification,
+		})
+		return
 	}
 
 	if h.isUserBlocked(userID) {
@@ -168,6 +181,15 @@ func (h *BotHandler) handleStart(ctx context.Context, msg *tgmodels.Message) {
 
 	if err := h.userRepo.CreateOrUpdate(user); err != nil {
 		h.sendError(ctx, msg.Chat.ID, "Ошибка при регистрации")
+		return
+	}
+
+	shouldProcess, notification := h.questStateMiddleware.ShouldProcessMessage(user.ID)
+	if !shouldProcess {
+		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   notification,
+		})
 		return
 	}
 

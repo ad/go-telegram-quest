@@ -17,7 +17,7 @@ func TestDBQueueRetry_Property(t *testing.T) {
 	}
 	defer db.Close()
 
-	queue := NewDBQueue(db)
+	queue := NewDBQueueForTest(db)
 	defer queue.Close()
 
 	rapid.Check(t, func(t *rapid.T) {

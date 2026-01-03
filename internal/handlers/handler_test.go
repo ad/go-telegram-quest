@@ -7,6 +7,7 @@ import (
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
+	"github.com/ad/go-telegram-quest/internal/services"
 	_ "modernc.org/sqlite"
 	"pgregory.net/rapid"
 )
@@ -554,4 +555,69 @@ func TestProperty21_BlockButtonConditionalDisplay(t *testing.T) {
 func containsUserID(callbackData, prefix string, userID int64) bool {
 	expected := prefix + fmt.Sprintf("%d", userID)
 	return callbackData == expected
+}
+
+func TestProperty2_AdminAccessInvariant(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		settingsRepo := db.NewSettingsRepository(queue)
+
+		_, err := queue.DB().Exec(`
+			INSERT OR IGNORE INTO settings (key, value) VALUES 
+				('quest_state', 'not_started'),
+				('quest_not_started_message', 'Quest not started'),
+				('quest_paused_message', 'Quest paused'),
+				('quest_completed_message', 'Quest completed')
+		`)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		questStateManager := services.NewQuestStateManager(settingsRepo)
+		adminID := rapid.Int64Range(1, 1000).Draw(rt, "adminID")
+
+		middleware := services.NewQuestStateMiddleware(questStateManager, adminID)
+
+		questState := rapid.SampledFrom([]services.QuestState{
+			services.QuestStateNotStarted,
+			services.QuestStateRunning,
+			services.QuestStatePaused,
+			services.QuestStateCompleted,
+		}).Draw(rt, "questState")
+
+		if err := questStateManager.SetState(questState); err != nil {
+			rt.Fatal(err)
+		}
+
+		shouldProcess, notification := middleware.ShouldProcessMessage(adminID)
+
+		if !shouldProcess {
+			rt.Errorf("Admin should always be able to process messages regardless of quest state '%s'", questState)
+		}
+
+		if notification != "" {
+			rt.Errorf("Admin should not receive state restriction messages, got: '%s'", notification)
+		}
+
+		regularUserID := rapid.Int64Range(1001, 2000).Draw(rt, "regularUserID")
+		shouldProcessRegular, notificationRegular := middleware.ShouldProcessMessage(regularUserID)
+
+		if questState == services.QuestStateRunning {
+			if !shouldProcessRegular {
+				rt.Error("Regular users should be able to process messages when quest is running")
+			}
+			if notificationRegular != "" {
+				rt.Error("Regular users should not receive notifications when quest is running")
+			}
+		} else {
+			if shouldProcessRegular {
+				rt.Errorf("Regular users should not be able to process messages when quest state is '%s'", questState)
+			}
+			if notificationRegular == "" {
+				rt.Errorf("Regular users should receive notifications when quest state is '%s'", questState)
+			}
+		}
+	})
 }

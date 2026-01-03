@@ -15,14 +15,15 @@ import (
 )
 
 type AdminHandler struct {
-	bot            *bot.Bot
-	adminID        int64
-	stepRepo       *db.StepRepository
-	answerRepo     *db.AnswerRepository
-	settingsRepo   *db.SettingsRepository
-	adminStateRepo *db.AdminStateRepository
-	userManager    *services.UserManager
-	userRepo       *db.UserRepository
+	bot               *bot.Bot
+	adminID           int64
+	stepRepo          *db.StepRepository
+	answerRepo        *db.AnswerRepository
+	settingsRepo      *db.SettingsRepository
+	adminStateRepo    *db.AdminStateRepository
+	userManager       *services.UserManager
+	userRepo          *db.UserRepository
+	questStateManager *services.QuestStateManager
 }
 
 func NewAdminHandler(
@@ -34,16 +35,18 @@ func NewAdminHandler(
 	adminStateRepo *db.AdminStateRepository,
 	userManager *services.UserManager,
 	userRepo *db.UserRepository,
+	questStateManager *services.QuestStateManager,
 ) *AdminHandler {
 	return &AdminHandler{
-		bot:            b,
-		adminID:        adminID,
-		stepRepo:       stepRepo,
-		answerRepo:     answerRepo,
-		settingsRepo:   settingsRepo,
-		adminStateRepo: adminStateRepo,
-		userManager:    userManager,
-		userRepo:       userRepo,
+		bot:               b,
+		adminID:           adminID,
+		stepRepo:          stepRepo,
+		answerRepo:        answerRepo,
+		settingsRepo:      settingsRepo,
+		adminStateRepo:    adminStateRepo,
+		userManager:       userManager,
+		userRepo:          userRepo,
+		questStateManager: questStateManager,
 	}
 }
 
@@ -98,6 +101,10 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.showUserList(ctx, chatID, messageID, 1)
 	case data == "admin:settings":
 		h.showSettingsMenu(ctx, chatID, messageID)
+	case data == "admin:quest_state":
+		h.showQuestStateMenu(ctx, chatID, messageID)
+	case strings.HasPrefix(data, "admin:quest_state:"):
+		h.handleQuestStateChange(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:edit_step:"):
 		h.startEditStep(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:edit_text:"):
@@ -221,7 +228,7 @@ func (h *AdminHandler) showStepsList(ctx context.Context, chatID int64, messageI
 	if len(steps) == 0 {
 		keyboard := &tgmodels.InlineKeyboardMarkup{
 			InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
-				{{Text: "« Назад", CallbackData: "admin:menu"}},
+				{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
 			},
 		}
 		h.editOrSend(ctx, chatID, messageID, "📋 Шагов пока нет", keyboard)
@@ -240,7 +247,7 @@ func (h *AdminHandler) showStepsList(ctx context.Context, chatID int64, messageI
 		})
 	}
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
-		{Text: "« Назад", CallbackData: "admin:menu"},
+		{Text: "⬅️ Назад", CallbackData: "admin:menu"},
 	})
 
 	h.editOrSend(ctx, chatID, messageID, "📋 Выберите шаг для редактирования:", &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
@@ -302,7 +309,7 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 	})
 
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
-		{Text: "« Назад", CallbackData: "admin:list_steps"},
+		{Text: "⬅️ Назад", CallbackData: "admin:list_steps"},
 	})
 
 	h.editOrSend(ctx, chatID, messageID, sb.String(), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
@@ -376,7 +383,7 @@ func (h *AdminHandler) showAnswersMenu(ctx context.Context, chatID int64, messag
 	}
 
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
-		{Text: "« Назад", CallbackData: fmt.Sprintf("admin:edit_step:%d", stepID)},
+		{Text: "⬅️ Назад", CallbackData: fmt.Sprintf("admin:edit_step:%d", stepID)},
 	})
 
 	h.editOrSend(ctx, chatID, messageID, sb.String(), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
@@ -441,11 +448,12 @@ func (h *AdminHandler) showSettingsMenu(ctx context.Context, chatID int64, messa
 	sb.WriteString(fmt.Sprintf("❌ Неправильный ответ: %s", truncateText(settings.WrongAnswerMessage, 50)))
 
 	buttons := [][]tgmodels.InlineKeyboardButton{
+		{{Text: "🎮 Состояние квеста", CallbackData: "admin:quest_state"}},
 		{{Text: "👋 Приветствие", CallbackData: "admin:edit_setting:welcome_message"}},
 		{{Text: "🏁 Финальное", CallbackData: "admin:edit_setting:final_message"}},
 		{{Text: "✅ Правильный ответ", CallbackData: "admin:edit_setting:correct_answer_message"}},
 		{{Text: "❌ Неправильный ответ", CallbackData: "admin:edit_setting:wrong_answer_message"}},
-		{{Text: "« Назад", CallbackData: "admin:menu"}},
+		{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
 	}
 
 	h.editOrSend(ctx, chatID, messageID, sb.String(), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
@@ -986,4 +994,55 @@ func (h *AdminHandler) handleUnblockFromDetails(ctx context.Context, chatID int6
 	}
 
 	h.showUserDetails(ctx, chatID, messageID, fmt.Sprintf("user:%d", userID))
+}
+
+func (h *AdminHandler) showQuestStateMenu(ctx context.Context, chatID int64, messageID int) {
+	currentState, err := h.questStateManager.GetCurrentState()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при получении состояния квеста", nil)
+		return
+	}
+
+	stateNames := map[services.QuestState]string{
+		services.QuestStateNotStarted: "Не начат",
+		services.QuestStateRunning:    "Запущен",
+		services.QuestStatePaused:     "На паузе",
+		services.QuestStateCompleted:  "Завершён",
+	}
+
+	var sb strings.Builder
+	sb.WriteString("🎮 Управление состоянием квеста\n\n")
+	sb.WriteString(fmt.Sprintf("Текущее состояние: %s\n\n", stateNames[currentState]))
+	sb.WriteString("Выберите новое состояние:")
+
+	buttons := [][]tgmodels.InlineKeyboardButton{
+		{{Text: "🔄 Не начат", CallbackData: "admin:quest_state:not_started"}},
+		{{Text: "▶️ Запустить", CallbackData: "admin:quest_state:running"}},
+		{{Text: "⏸️ Пауза", CallbackData: "admin:quest_state:paused"}},
+		{{Text: "🏁 Завершить", CallbackData: "admin:quest_state:completed"}},
+		{{Text: "⬅️ Назад", CallbackData: "admin:settings"}},
+	}
+
+	h.editOrSend(ctx, chatID, messageID, sb.String(), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
+}
+
+func (h *AdminHandler) handleQuestStateChange(ctx context.Context, chatID int64, messageID int, data string) {
+	stateStr := strings.TrimPrefix(data, "admin:quest_state:")
+	newState := services.QuestState(stateStr)
+
+	if err := h.questStateManager.SetState(newState); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при изменении состояния квеста", nil)
+		return
+	}
+
+	stateNames := map[services.QuestState]string{
+		services.QuestStateNotStarted: "не начат",
+		services.QuestStateRunning:    "запущен",
+		services.QuestStatePaused:     "поставлен на паузу",
+		services.QuestStateCompleted:  "завершён",
+	}
+
+	message := fmt.Sprintf("✅ Квест %s", stateNames[newState])
+	h.editOrSend(ctx, chatID, messageID, message, nil)
+	h.showQuestStateMenu(ctx, chatID, 0)
 }

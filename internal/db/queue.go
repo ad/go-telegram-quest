@@ -16,16 +16,32 @@ type DBResult struct {
 }
 
 type DBQueue struct {
-	tasks    chan DBTask
-	db       *sql.DB
-	maxRetry int
+	tasks      chan DBTask
+	db         *sql.DB
+	maxRetry   int
+	retryDelay time.Duration
+	testMode   bool
 }
 
 func NewDBQueue(db *sql.DB) *DBQueue {
 	q := &DBQueue{
-		tasks:    make(chan DBTask, 100),
-		db:       db,
-		maxRetry: 3,
+		tasks:      make(chan DBTask, 100),
+		db:         db,
+		maxRetry:   3,
+		retryDelay: 100 * time.Millisecond,
+		testMode:   false,
+	}
+	go q.worker()
+	return q
+}
+
+func NewDBQueueForTest(db *sql.DB) *DBQueue {
+	q := &DBQueue{
+		tasks:      make(chan DBTask, 100),
+		db:         db,
+		maxRetry:   3,
+		retryDelay: 1 * time.Millisecond, // Minimal delay for tests
+		testMode:   true,
 	}
 	go q.worker()
 	return q
@@ -53,7 +69,13 @@ func (q *DBQueue) executeWithRetry(task DBTask) DBResult {
 			return DBResult{Data: data, Err: nil}
 		}
 		lastErr = err
-		time.Sleep(time.Duration(attempt+1) * 100 * time.Millisecond)
+		if attempt < q.maxRetry-1 { // Don't sleep after the last attempt
+			if q.testMode {
+				time.Sleep(q.retryDelay)
+			} else {
+				time.Sleep(time.Duration(attempt+1) * q.retryDelay)
+			}
+		}
 	}
 	return DBResult{Err: lastErr}
 }
