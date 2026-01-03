@@ -47,6 +47,14 @@ type StepAttempt struct {
 	Attempts  int
 }
 
+type QuestStatistics struct {
+	TotalUsers       int
+	CompletedUsers   int
+	InProgressUsers  int
+	NotStartedUsers  int
+	StepDistribution map[int]int // step_order -> count of users on that step
+}
+
 type UserManager struct {
 	userRepo       *db.UserRepository
 	stepRepo       *db.StepRepository
@@ -192,4 +200,63 @@ func (m *UserManager) ResetUserProgress(userID int64) error {
 	}
 
 	return nil
+}
+
+func (m *UserManager) GetQuestStatistics() (*QuestStatistics, error) {
+	allUsers, err := m.userRepo.GetAll()
+	if err != nil {
+		return nil, err
+	}
+
+	activeSteps, err := m.stepRepo.GetActive()
+	if err != nil {
+		return nil, err
+	}
+
+	stats := &QuestStatistics{
+		TotalUsers:       len(allUsers),
+		StepDistribution: make(map[int]int),
+	}
+
+	if len(activeSteps) == 0 {
+		// No active steps means everyone is "completed"
+		stats.CompletedUsers = len(allUsers)
+		return stats, nil
+	}
+
+	for _, user := range allUsers {
+		userProgress, err := m.progressRepo.GetUserProgress(user.ID)
+		if err != nil && err != sql.ErrNoRows {
+			return nil, err
+		}
+
+		approvedSteps := make(map[int64]bool)
+		for _, p := range userProgress {
+			if p.Status == models.StatusApproved {
+				approvedSteps[p.StepID] = true
+			}
+		}
+
+		// Find current step
+		currentStepOrder := 0
+		isCompleted := true
+		for _, step := range activeSteps {
+			if !approvedSteps[step.ID] {
+				currentStepOrder = step.StepOrder
+				isCompleted = false
+				break
+			}
+		}
+
+		if isCompleted {
+			stats.CompletedUsers++
+		} else if currentStepOrder > 0 {
+			stats.InProgressUsers++
+			stats.StepDistribution[currentStepOrder]++
+		} else {
+			stats.NotStartedUsers++
+		}
+	}
+
+	return stats, nil
 }

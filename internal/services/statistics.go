@@ -2,7 +2,6 @@ package services
 
 import (
 	"database/sql"
-	"sort"
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
@@ -119,11 +118,6 @@ func (s *StatisticsService) GetUserMaxStep(userID int64) (int, error) {
 	return result.(int), nil
 }
 
-type userWithMaxStep struct {
-	user    *models.User
-	maxStep int
-}
-
 func (s *StatisticsService) GetUserLeaderboardPosition(userID int64) (int, int, error) {
 	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		var userMaxStep int
@@ -191,19 +185,4 @@ func (s *StatisticsService) GetUserProgress(userID int64) (int, int, float64, er
 	}
 
 	return answeredCount, activeCount, percentage, nil
-}
-
-func sortLeadersByMaxStep(users []userWithMaxStep) []*models.User {
-	sort.Slice(users, func(i, j int) bool {
-		if users[i].maxStep != users[j].maxStep {
-			return users[i].maxStep > users[j].maxStep
-		}
-		return users[i].user.CreatedAt.Before(users[j].user.CreatedAt)
-	})
-
-	result := make([]*models.User, len(users))
-	for i, u := range users {
-		result[i] = u.user
-	}
-	return result
 }

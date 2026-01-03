@@ -308,16 +308,14 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 	sb.WriteString(fmt.Sprintf("📊 Статус: %s\n", status))
 
 	if hasProgress {
-		sb.WriteString("\n⚠️ Шаг уже пройден пользователями")
+		sb.WriteString("\n⚠️ Шаг уже пройден некоторыми пользователями")
 	}
 
 	var buttons [][]tgmodels.InlineKeyboardButton
 
-	if !hasProgress {
-		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
-			{Text: "✏️ Изменить текст", CallbackData: fmt.Sprintf("admin:edit_text:%d", stepID)},
-		})
-	}
+	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+		{Text: "✏️ Изменить текст", CallbackData: fmt.Sprintf("admin:edit_text:%d", stepID)},
+	})
 
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
 		{Text: "📝 Варианты ответов", CallbackData: fmt.Sprintf("admin:answers:%d", stepID)},
@@ -1017,9 +1015,57 @@ func (h *AdminHandler) showUserList(ctx context.Context, chatID int64, messageID
 		return
 	}
 
+	// Get quest statistics
+	stats, err := h.userManager.GetQuestStatistics()
+	if err != nil {
+		log.Printf("[ADMIN] Error getting quest statistics: %v", err)
+		// Continue without statistics
+	}
+
+	var text strings.Builder
+	text.WriteString(fmt.Sprintf("👥 Участники (стр. %d/%d)\n\n", result.CurrentPage, result.TotalPages))
+
+	// Display statistics if available
+	if stats != nil {
+		text.WriteString("📊 Общая статистика:\n")
+		text.WriteString(fmt.Sprintf("👤 Всего участников: %d\n", stats.TotalUsers))
+		text.WriteString(fmt.Sprintf("✅ Завершили квест: %d\n", stats.CompletedUsers))
+		text.WriteString(fmt.Sprintf("🔄 В процессе: %d\n", stats.InProgressUsers))
+
+		if stats.NotStartedUsers > 0 {
+			text.WriteString(fmt.Sprintf("⏸️ Не начали: %d\n", stats.NotStartedUsers))
+		}
+
+		// Show distribution by steps if there are users in progress
+		if len(stats.StepDistribution) > 0 {
+			text.WriteString("\n📍 Распределение по шагам:\n")
+
+			// Sort step orders for consistent display
+			var stepOrders []int
+			for stepOrder := range stats.StepDistribution {
+				stepOrders = append(stepOrders, stepOrder)
+			}
+
+			// Simple bubble sort for small arrays
+			for i := 0; i < len(stepOrders); i++ {
+				for j := i + 1; j < len(stepOrders); j++ {
+					if stepOrders[i] > stepOrders[j] {
+						stepOrders[i], stepOrders[j] = stepOrders[j], stepOrders[i]
+					}
+				}
+			}
+
+			for _, stepOrder := range stepOrders {
+				count := stats.StepDistribution[stepOrder]
+				text.WriteString(fmt.Sprintf("   Шаг %d: %d чел.\n", stepOrder, count))
+			}
+		}
+
+		text.WriteString("\n")
+	}
+
 	keyboard := h.buildUserListKeyboard(result)
-	text := fmt.Sprintf("👥 Участники (стр. %d/%d)", result.CurrentPage, result.TotalPages)
-	h.editOrSend(ctx, chatID, messageID, text, keyboard)
+	h.editOrSend(ctx, chatID, messageID, text.String(), keyboard)
 }
 
 func (h *AdminHandler) buildUserListKeyboard(page *services.UserListPage) *tgmodels.InlineKeyboardMarkup {
