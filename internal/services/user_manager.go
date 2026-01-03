@@ -52,7 +52,8 @@ type QuestStatistics struct {
 	CompletedUsers   int
 	InProgressUsers  int
 	NotStartedUsers  int
-	StepDistribution map[int]int // step_order -> count of users on that step
+	StepDistribution map[int]int    // step_order -> count of users on that step
+	StepTitles       map[int]string // step_order -> step text
 }
 
 type UserManager struct {
@@ -216,6 +217,11 @@ func (m *UserManager) GetQuestStatistics() (*QuestStatistics, error) {
 	stats := &QuestStatistics{
 		TotalUsers:       len(allUsers),
 		StepDistribution: make(map[int]int),
+		StepTitles:       make(map[int]string),
+	}
+
+	for _, step := range activeSteps {
+		stats.StepTitles[step.StepOrder] = step.Text
 	}
 
 	if len(activeSteps) == 0 {

@@ -44,7 +44,7 @@ func TestGetQuestStatistics(t *testing.T) {
 	// Create test steps
 	step1ID, _ := stepRepo.Create(&models.Step{
 		StepOrder:    1,
-		Text:         "Step 1",
+		Text:         "Step 1 text",
 		AnswerType:   models.AnswerTypeText,
 		HasAutoCheck: true,
 		IsActive:     true,
@@ -52,7 +52,7 @@ func TestGetQuestStatistics(t *testing.T) {
 
 	step2ID, _ := stepRepo.Create(&models.Step{
 		StepOrder:    2,
-		Text:         "Step 2",
+		Text:         "Step 2 text",
 		AnswerType:   models.AnswerTypeText,
 		HasAutoCheck: true,
 		IsActive:     true,
@@ -60,7 +60,7 @@ func TestGetQuestStatistics(t *testing.T) {
 
 	step3ID, _ := stepRepo.Create(&models.Step{
 		StepOrder:    3,
-		Text:         "Step 3",
+		Text:         "Step 3 text",
 		AnswerType:   models.AnswerTypeText,
 		HasAutoCheck: true,
 		IsActive:     true,
@@ -109,21 +109,60 @@ func TestGetQuestStatistics(t *testing.T) {
 		t.Errorf("Expected CompletedUsers=1, got %d", stats.CompletedUsers)
 	}
 
-	// Verify in-progress users (User 2, User 3, User 4 are all in progress or not started)
-	// Actually, with my logic:
-	// User 2: currentStepOrder = 2
-	// User 3: currentStepOrder = 1
-	// User 4: currentStepOrder = 1
+	// Verify in-progress users
 	if stats.InProgressUsers != 3 {
 		t.Errorf("Expected InProgressUsers=3, got %d", stats.InProgressUsers)
 	}
 
 	// Verify step distribution
-	if stats.StepDistribution[1] != 2 { // User 3 and User 4
+	if stats.StepDistribution[1] != 2 {
 		t.Errorf("Expected 2 users on step 1, got %d", stats.StepDistribution[1])
 	}
 
-	if stats.StepDistribution[2] != 1 { // User 2
+	if stats.StepDistribution[2] != 1 {
 		t.Errorf("Expected 1 user on step 2, got %d", stats.StepDistribution[2])
+	}
+
+	// Verify step titles
+	if stats.StepTitles[1] != "Step 1 text" {
+		t.Errorf("Expected title 'Step 1 text' for step 1, got %q", stats.StepTitles[1])
+	}
+	if stats.StepTitles[2] != "Step 2 text" {
+		t.Errorf("Expected title 'Step 2 text' for step 2, got %q", stats.StepTitles[2])
+	}
+}
+
+func TestGetQuestStatistics_NoActiveSteps(t *testing.T) {
+	queue, cleanup := setupTestDBForQuestStats(t)
+	defer cleanup()
+
+	userRepo := db.NewUserRepository(queue)
+	stepRepo := db.NewStepRepository(queue)
+	progressRepo := db.NewProgressRepository(queue)
+	answerRepo := db.NewAnswerRepository(queue)
+	chatStateRepo := db.NewChatStateRepository(queue)
+	statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
+	userManager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
+
+	// Create test users
+	user1 := &models.User{ID: 1, FirstName: "User", LastName: "One", Username: "user1"}
+	userRepo.CreateOrUpdate(user1)
+
+	user2 := &models.User{ID: 2, FirstName: "User", LastName: "Two", Username: "user2"}
+	userRepo.CreateOrUpdate(user2)
+
+	// Get quest statistics with no active steps
+	stats, err := userManager.GetQuestStatistics()
+	if err != nil {
+		t.Fatalf("GetQuestStatistics failed: %v", err)
+	}
+
+	// All users should be considered completed when there are no active steps
+	if stats.TotalUsers != 2 {
+		t.Errorf("Expected TotalUsers=2, got %d", stats.TotalUsers)
+	}
+
+	if stats.CompletedUsers != 2 {
+		t.Errorf("Expected CompletedUsers=2, got %d", stats.CompletedUsers)
 	}
 }

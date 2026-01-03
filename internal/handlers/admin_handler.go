@@ -1057,7 +1057,17 @@ func (h *AdminHandler) showUserList(ctx context.Context, chatID int64, messageID
 
 			for _, stepOrder := range stepOrders {
 				count := stats.StepDistribution[stepOrder]
-				text.WriteString(fmt.Sprintf("   Шаг %d: %d чел.\n", stepOrder, count))
+				title := stats.StepTitles[stepOrder]
+
+				// Truncate step text for the list
+				displayTitle := title
+				if len([]rune(displayTitle)) > 40 {
+					displayTitle = string([]rune(displayTitle)[:40]) + "..."
+				}
+				// Remove newlines to keep it on one line if any
+				displayTitle = strings.ReplaceAll(displayTitle, "\n", " ")
+
+				text.WriteString(fmt.Sprintf("   %d. %s: %d чел.\n", stepOrder, displayTitle, count))
 			}
 		}
 
