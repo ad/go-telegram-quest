@@ -213,6 +213,56 @@ func (r *StepRepository) AddImage(stepID int64, fileID string, position int) err
 	return err
 }
 
+func (r *StepRepository) ReplaceImage(stepID int64, oldPosition int, fileID string) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`
+			UPDATE step_images SET file_id = ? 
+			WHERE step_id = ? AND position = ?
+		`, fileID, stepID, oldPosition)
+		return nil, err
+	})
+	return err
+}
+
+func (r *StepRepository) DeleteImage(stepID int64, position int) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		tx, err := db.Begin()
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+
+		_, err = tx.Exec(`DELETE FROM step_images WHERE step_id = ? AND position = ?`, stepID, position)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = tx.Exec(`
+			UPDATE step_images 
+			SET position = position - 1 
+			WHERE step_id = ? AND position > ?
+		`, stepID, position)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, tx.Commit()
+	})
+	return err
+}
+
+func (r *StepRepository) GetImageCount(stepID int64) (int, error) {
+	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var count int
+		err := db.QueryRow(`SELECT COUNT(*) FROM step_images WHERE step_id = ?`, stepID).Scan(&count)
+		return count, err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.(int), nil
+}
+
 func (r *StepRepository) AddAnswer(stepID int64, answer string) error {
 	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		_, err := db.Exec(`

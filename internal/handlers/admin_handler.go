@@ -123,6 +123,14 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.startAddAnswer(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:del_answer:"):
 		h.startDeleteAnswer(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:images:"):
+		h.showImagesMenu(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:add_image:"):
+		h.startAddImage(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:replace_image:"):
+		h.startReplaceImage(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:delete_image:"):
+		h.startDeleteImage(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:edit_setting:"):
 		h.startEditSetting(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "userlist:"):
@@ -298,6 +306,10 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
 		{Text: "📝 Варианты ответов", CallbackData: fmt.Sprintf("admin:answers:%d", stepID)},
+	})
+
+	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+		{Text: "📷 Изображения", CallbackData: fmt.Sprintf("admin:images:%d", stepID)},
 	})
 
 	toggleText := "⏸️ Отключить"
@@ -521,6 +533,12 @@ func (h *AdminHandler) handleStateInput(ctx context.Context, msg *tgmodels.Messa
 		return h.handleAddAnswer(ctx, msg, state)
 	case fsm.StateAdminDeleteAnswer:
 		return h.handleDeleteAnswer(ctx, msg, state)
+	case fsm.StateAdminAddImage:
+		return h.handleAddImage(ctx, msg, state)
+	case fsm.StateAdminReplaceImage:
+		return h.handleReplaceImage(ctx, msg, state)
+	case fsm.StateAdminDeleteImage:
+		return h.handleDeleteImage(ctx, msg, state)
 	case fsm.StateAdminEditSettingValue:
 		return h.handleEditSettingValue(ctx, msg, state)
 	}
@@ -1098,4 +1116,243 @@ func (h *AdminHandler) moveStepDown(ctx context.Context, chatID int64, messageID
 
 	h.editOrSend(ctx, chatID, messageID, "✅ Шаг перемещён вниз", nil)
 	h.showStepsList(ctx, chatID, 0)
+}
+
+func (h *AdminHandler) showImagesMenu(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:images:"))
+	if stepID == 0 {
+		return
+	}
+
+	step, err := h.stepRepo.GetByID(stepID)
+	if err != nil || step == nil {
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("📷 Изображения для шага %d:\n\n", step.StepOrder))
+
+	if len(step.Images) == 0 {
+		sb.WriteString("Изображений пока нет")
+	} else {
+		for i, img := range step.Images {
+			sb.WriteString(fmt.Sprintf("%d. Изображение (ID: %s)\n", i+1, img.FileID[:10]+"..."))
+		}
+	}
+
+	buttons := [][]tgmodels.InlineKeyboardButton{
+		{{Text: "➕ Добавить изображение", CallbackData: fmt.Sprintf("admin:add_image:%d", stepID)}},
+	}
+
+	if len(step.Images) > 0 {
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "🔄 Заменить изображение", CallbackData: fmt.Sprintf("admin:replace_image:%d", stepID)},
+		})
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "🗑️ Удалить изображение", CallbackData: fmt.Sprintf("admin:delete_image:%d", stepID)},
+		})
+	}
+
+	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+		{Text: "⬅️ Назад", CallbackData: fmt.Sprintf("admin:edit_step:%d", stepID)},
+	})
+
+	h.editOrSend(ctx, chatID, messageID, sb.String(), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
+}
+
+func (h *AdminHandler) startAddImage(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:add_image:"))
+	if stepID == 0 {
+		return
+	}
+
+	state := &models.AdminState{
+		UserID:        h.adminID,
+		CurrentState:  fsm.StateAdminAddImage,
+		EditingStepID: stepID,
+	}
+	h.adminStateRepo.Save(state)
+
+	h.editOrSend(ctx, chatID, messageID, "📷 Отправьте изображение для добавления:\n\n/cancel - отмена", nil)
+}
+
+func (h *AdminHandler) startReplaceImage(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:replace_image:"))
+	if stepID == 0 {
+		return
+	}
+
+	step, err := h.stepRepo.GetByID(stepID)
+	if err != nil || step == nil || len(step.Images) == 0 {
+		return
+	}
+
+	state := &models.AdminState{
+		UserID:        h.adminID,
+		CurrentState:  fsm.StateAdminReplaceImage,
+		EditingStepID: stepID,
+	}
+	h.adminStateRepo.Save(state)
+
+	var sb strings.Builder
+	sb.WriteString("🔄 Введите номер изображения для замены:\n\n")
+	for i, img := range step.Images {
+		sb.WriteString(fmt.Sprintf("%d. Изображение (ID: %s)\n", i+1, img.FileID[:10]+"..."))
+	}
+	sb.WriteString("\n/cancel - отмена")
+
+	h.editOrSend(ctx, chatID, messageID, sb.String(), nil)
+}
+
+func (h *AdminHandler) startDeleteImage(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:delete_image:"))
+	if stepID == 0 {
+		return
+	}
+
+	step, err := h.stepRepo.GetByID(stepID)
+	if err != nil || step == nil || len(step.Images) == 0 {
+		return
+	}
+
+	state := &models.AdminState{
+		UserID:        h.adminID,
+		CurrentState:  fsm.StateAdminDeleteImage,
+		EditingStepID: stepID,
+	}
+	h.adminStateRepo.Save(state)
+
+	var sb strings.Builder
+	sb.WriteString("🗑️ Введите номер изображения для удаления:\n\n")
+	for i, img := range step.Images {
+		sb.WriteString(fmt.Sprintf("%d. Изображение (ID: %s)\n", i+1, img.FileID[:10]+"..."))
+	}
+	sb.WriteString("\n/cancel - отмена")
+
+	h.editOrSend(ctx, chatID, messageID, sb.String(), nil)
+}
+
+func (h *AdminHandler) handleAddImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if len(msg.Photo) == 0 {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Отправьте изображение",
+		})
+		return true
+	}
+
+	fileID := msg.Photo[len(msg.Photo)-1].FileID
+	imageCount, _ := h.stepRepo.GetImageCount(state.EditingStepID)
+
+	if err := h.stepRepo.AddImage(state.EditingStepID, fileID, imageCount); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при добавлении изображения",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ Изображение добавлено",
+	})
+	h.showImagesMenu(ctx, msg.Chat.ID, 0, fmt.Sprintf("admin:images:%d", state.EditingStepID))
+	return true
+}
+
+func (h *AdminHandler) handleReplaceImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if state.ImagePosition == 0 {
+		var num int
+		if _, err := fmt.Sscanf(msg.Text, "%d", &num); err != nil {
+			h.bot.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: msg.Chat.ID,
+				Text:   "⚠️ Введите номер изображения",
+			})
+			return true
+		}
+
+		step, err := h.stepRepo.GetByID(state.EditingStepID)
+		if err != nil || step == nil || num < 1 || num > len(step.Images) {
+			h.bot.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: msg.Chat.ID,
+				Text:   "⚠️ Неверный номер изображения",
+			})
+			return true
+		}
+
+		state.ImagePosition = num - 1
+		h.adminStateRepo.Save(state)
+
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "📷 Теперь отправьте новое изображение:",
+		})
+		return true
+	}
+
+	if len(msg.Photo) == 0 {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Отправьте изображение",
+		})
+		return true
+	}
+
+	fileID := msg.Photo[len(msg.Photo)-1].FileID
+
+	if err := h.stepRepo.ReplaceImage(state.EditingStepID, state.ImagePosition, fileID); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при замене изображения",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ Изображение заменено",
+	})
+	h.showImagesMenu(ctx, msg.Chat.ID, 0, fmt.Sprintf("admin:images:%d", state.EditingStepID))
+	return true
+}
+
+func (h *AdminHandler) handleDeleteImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	var num int
+	if _, err := fmt.Sscanf(msg.Text, "%d", &num); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Введите номер изображения",
+		})
+		return true
+	}
+
+	step, err := h.stepRepo.GetByID(state.EditingStepID)
+	if err != nil || step == nil || num < 1 || num > len(step.Images) {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Неверный номер изображения",
+		})
+		return true
+	}
+
+	if err := h.stepRepo.DeleteImage(state.EditingStepID, num-1); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при удалении изображения",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ Изображение удалено",
+	})
+	h.showImagesMenu(ctx, msg.Chat.ID, 0, fmt.Sprintf("admin:images:%d", state.EditingStepID))
+	return true
 }
