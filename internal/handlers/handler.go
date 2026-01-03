@@ -197,7 +197,7 @@ func (h *BotHandler) handleStart(ctx context.Context, msg *tgmodels.Message) {
 
 	state, err := h.stateResolver.ResolveState(user.ID)
 	if err != nil {
-		h.sendError(ctx, msg.Chat.ID, "Ошибка при определении состояния")
+		h.sendError(ctx, msg.Chat.ID, fmt.Sprintf("Ошибка при определении состояния: %v", err))
 		return
 	}
 
@@ -275,12 +275,12 @@ func (h *BotHandler) getProgressText(userID int64) string {
 		return ""
 	}
 
-	barLength := int(percentage * 30 / 100)
-	if barLength > 30 {
-		barLength = 30
+	barLength := int(percentage * 20 / 100)
+	if barLength > 20 {
+		barLength = 20
 	}
 
-	return strings.Repeat("▰", barLength) + strings.Repeat("▱", 30-barLength)
+	return strings.Repeat("▰", barLength) + strings.Repeat("▱", 20-barLength)
 }
 
 func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message) {
@@ -713,6 +713,13 @@ func (h *BotHandler) handleNextStepCallback(ctx context.Context, callback *tgmod
 	parts := strings.Split(callback.Data, ":")
 	if len(parts) != 2 {
 		return
+	}
+
+	if callback.Message.Message != nil {
+		h.bot.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    callback.Message.Message.Chat.ID,
+			MessageID: callback.Message.Message.ID,
+		})
 	}
 
 	currentOrder, _ := parseInt64(parts[1])

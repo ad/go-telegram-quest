@@ -2,6 +2,8 @@ package db
 
 import (
 	"database/sql"
+	"log"
+	"strings"
 )
 
 const schema = `
@@ -120,7 +122,20 @@ func InitSchema(db *sql.DB) error {
 		return err
 	}
 
-	db.Exec(migrations)
+	// Split migrations and execute them one by one
+	migrationStatements := strings.Split(migrations, ";")
+	for i, stmt := range migrationStatements {
+		stmt = strings.TrimSpace(stmt)
+		if stmt == "" {
+			continue
+		}
+		// Ignore errors for migrations as columns might already exist, but log them for debugging
+		if _, err := db.Exec(stmt); err != nil {
+			log.Printf("Migration %d failed: %s. Error: %v", i, stmt, err)
+		} else {
+			log.Printf("Migration %d executed: %s", i, stmt)
+		}
+	}
 
 	return nil
 }
