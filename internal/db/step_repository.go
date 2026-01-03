@@ -255,6 +255,198 @@ func (r *StepRepository) scanSteps(db *sql.DB, rows *sql.Rows) ([]*models.Step, 
 	return steps, rows.Err()
 }
 
+func (r *StepRepository) SwapStepOrder(stepID1, stepID2 int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		tx, err := db.Begin()
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+
+		var order1, order2 int
+		err = tx.QueryRow(`SELECT step_order FROM steps WHERE id = ?`, stepID1).Scan(&order1)
+		if err != nil {
+			return nil, err
+		}
+
+		err = tx.QueryRow(`SELECT step_order FROM steps WHERE id = ?`, stepID2).Scan(&order2)
+		if err != nil {
+			return nil, err
+		}
+
+		var maxOrder int
+		err = tx.QueryRow(`SELECT COALESCE(MAX(step_order), 0) FROM steps`).Scan(&maxOrder)
+		if err != nil {
+			return nil, err
+		}
+
+		tempOrder := maxOrder + 1000
+		_, err = tx.Exec(`UPDATE steps SET step_order = ? WHERE id = ?`, tempOrder, stepID1)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = tx.Exec(`UPDATE steps SET step_order = ? WHERE id = ?`, order1, stepID2)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = tx.Exec(`UPDATE steps SET step_order = ? WHERE id = ?`, order2, stepID1)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, tx.Commit()
+	})
+	return err
+}
+
+func (r *StepRepository) MoveStepUp(stepID int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		tx, err := db.Begin()
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+
+		var currentOrder int
+		err = tx.QueryRow(`SELECT step_order FROM steps WHERE id = ?`, stepID).Scan(&currentOrder)
+		if err != nil {
+			return nil, err
+		}
+
+		var prevStepID int64
+		var prevOrder int
+		err = tx.QueryRow(`
+			SELECT id, step_order FROM steps 
+			WHERE step_order < ? AND is_deleted = FALSE 
+			ORDER BY step_order DESC LIMIT 1
+		`, currentOrder).Scan(&prevStepID, &prevOrder)
+		if err != nil {
+			return nil, err
+		}
+
+		var maxOrder int
+		err = tx.QueryRow(`SELECT COALESCE(MAX(step_order), 0) FROM steps`).Scan(&maxOrder)
+		if err != nil {
+			return nil, err
+		}
+
+		tempOrder := maxOrder + 1000
+		_, err = tx.Exec(`UPDATE steps SET step_order = ? WHERE id = ?`, tempOrder, stepID)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = tx.Exec(`UPDATE steps SET step_order = ? WHERE id = ?`, currentOrder, prevStepID)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = tx.Exec(`UPDATE steps SET step_order = ? WHERE id = ?`, prevOrder, stepID)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, tx.Commit()
+	})
+	return err
+}
+
+func (r *StepRepository) MoveStepDown(stepID int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		tx, err := db.Begin()
+		if err != nil {
+			return nil, err
+		}
+		defer tx.Rollback()
+
+		var currentOrder int
+		err = tx.QueryRow(`SELECT step_order FROM steps WHERE id = ?`, stepID).Scan(&currentOrder)
+		if err != nil {
+			return nil, err
+		}
+
+		var nextStepID int64
+		var nextOrder int
+		err = tx.QueryRow(`
+			SELECT id, step_order FROM steps 
+			WHERE step_order > ? AND is_deleted = FALSE 
+			ORDER BY step_order ASC LIMIT 1
+		`, currentOrder).Scan(&nextStepID, &nextOrder)
+		if err != nil {
+			return nil, err
+		}
+
+		var maxOrder int
+		err = tx.QueryRow(`SELECT COALESCE(MAX(step_order), 0) FROM steps`).Scan(&maxOrder)
+		if err != nil {
+			return nil, err
+		}
+
+		tempOrder := maxOrder + 1000
+		_, err = tx.Exec(`UPDATE steps SET step_order = ? WHERE id = ?`, tempOrder, stepID)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = tx.Exec(`UPDATE steps SET step_order = ? WHERE id = ?`, currentOrder, nextStepID)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = tx.Exec(`UPDATE steps SET step_order = ? WHERE id = ?`, nextOrder, stepID)
+		if err != nil {
+			return nil, err
+		}
+
+		return nil, tx.Commit()
+	})
+	return err
+}
+
+func (r *StepRepository) CanMoveUp(stepID int64) (bool, error) {
+	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var currentOrder int
+		err := db.QueryRow(`SELECT step_order FROM steps WHERE id = ?`, stepID).Scan(&currentOrder)
+		if err != nil {
+			return false, err
+		}
+
+		var count int
+		err = db.QueryRow(`
+			SELECT COUNT(*) FROM steps 
+			WHERE step_order < ? AND is_deleted = FALSE
+		`, currentOrder).Scan(&count)
+		return count > 0, err
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.(bool), nil
+}
+
+func (r *StepRepository) CanMoveDown(stepID int64) (bool, error) {
+	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var currentOrder int
+		err := db.QueryRow(`SELECT step_order FROM steps WHERE id = ?`, stepID).Scan(&currentOrder)
+		if err != nil {
+			return false, err
+		}
+
+		var count int
+		err = db.QueryRow(`
+			SELECT COUNT(*) FROM steps 
+			WHERE step_order > ? AND is_deleted = FALSE
+		`, currentOrder).Scan(&count)
+		return count > 0, err
+	})
+	if err != nil {
+		return false, err
+	}
+	return result.(bool), nil
+}
+
 func (r *StepRepository) loadStepRelations(db *sql.DB, step *models.Step) (*models.Step, error) {
 	imgRows, err := db.Query(`
 		SELECT id, step_id, file_id, position

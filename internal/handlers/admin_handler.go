@@ -105,6 +105,10 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.showQuestStateMenu(ctx, chatID, messageID)
 	case strings.HasPrefix(data, "admin:quest_state:"):
 		h.handleQuestStateChange(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:move_up:"):
+		h.moveStepUp(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:move_down:"):
+		h.moveStepDown(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:edit_step:"):
 		h.startEditStep(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:edit_text:"):
@@ -307,6 +311,26 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
 		{Text: "🗑️ Удалить", CallbackData: fmt.Sprintf("admin:delete_step:%d", stepID)},
 	})
+
+	if !hasProgress {
+		var moveButtons []tgmodels.InlineKeyboardButton
+
+		if canMoveUp, _ := h.stepRepo.CanMoveUp(stepID); canMoveUp {
+			moveButtons = append(moveButtons, tgmodels.InlineKeyboardButton{
+				Text: "⬆️ Вверх", CallbackData: fmt.Sprintf("admin:move_up:%d", stepID),
+			})
+		}
+
+		if canMoveDown, _ := h.stepRepo.CanMoveDown(stepID); canMoveDown {
+			moveButtons = append(moveButtons, tgmodels.InlineKeyboardButton{
+				Text: "⬇️ Вниз", CallbackData: fmt.Sprintf("admin:move_down:%d", stepID),
+			})
+		}
+
+		if len(moveButtons) > 0 {
+			buttons = append(buttons, moveButtons)
+		}
+	}
 
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
 		{Text: "⬅️ Назад", CallbackData: "admin:list_steps"},
@@ -1045,4 +1069,33 @@ func (h *AdminHandler) handleQuestStateChange(ctx context.Context, chatID int64,
 	message := fmt.Sprintf("✅ Квест %s", stateNames[newState])
 	h.editOrSend(ctx, chatID, messageID, message, nil)
 	h.showQuestStateMenu(ctx, chatID, 0)
+}
+func (h *AdminHandler) moveStepUp(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:move_up:"))
+	if stepID == 0 {
+		return
+	}
+
+	if err := h.stepRepo.MoveStepUp(stepID); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при перемещении шага", nil)
+		return
+	}
+
+	h.editOrSend(ctx, chatID, messageID, "✅ Шаг перемещён вверх", nil)
+	h.showStepsList(ctx, chatID, 0)
+}
+
+func (h *AdminHandler) moveStepDown(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:move_down:"))
+	if stepID == 0 {
+		return
+	}
+
+	if err := h.stepRepo.MoveStepDown(stepID); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при перемещении шага", nil)
+		return
+	}
+
+	h.editOrSend(ctx, chatID, messageID, "✅ Шаг перемещён вниз", nil)
+	h.showStepsList(ctx, chatID, 0)
 }
