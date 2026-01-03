@@ -180,3 +180,20 @@ func (r *AnswerRepository) CountUserAnswersByStep(userID int64) (map[int64]int, 
 	}
 	return result.(map[int64]int), nil
 }
+
+func (r *AnswerRepository) DeleteUserAnswers(userID int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`
+			DELETE FROM answer_images WHERE answer_id IN (
+				SELECT id FROM user_answers WHERE user_id = ?
+			)
+		`, userID)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = db.Exec(`DELETE FROM user_answers WHERE user_id = ?`, userID)
+		return nil, err
+	})
+	return err
+}

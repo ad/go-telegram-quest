@@ -78,7 +78,7 @@ func TestBotHandlerIntegration(t *testing.T) {
 	answerChecker := services.NewAnswerChecker(answerRepo, progressRepo, userRepo)
 	msgManager := services.NewMessageManager(nil, chatStateRepo, errorManager)
 	statsService := services.NewStatisticsService(dbQueue, stepRepo, progressRepo, userRepo)
-	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, statsService)
+	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
 	questStateManager := services.NewQuestStateManager(settingsRepo)
 
 	handler := handlers.NewBotHandler(
@@ -177,7 +177,7 @@ func TestAdminHandlerIntegration(t *testing.T) {
 	adminID := int64(123456)
 
 	statsService := services.NewStatisticsService(dbQueue, stepRepo, progressRepo, userRepo)
-	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, statsService)
+	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
 	questStateManager := services.NewQuestStateManager(settingsRepo)
 
 	adminHandler := handlers.NewAdminHandler(

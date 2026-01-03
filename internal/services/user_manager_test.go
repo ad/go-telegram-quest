@@ -19,7 +19,8 @@ func TestProperty19_UserListPagination(t *testing.T) {
 		progressRepo := db.NewProgressRepository(queue)
 		answerRepo := db.NewAnswerRepository(queue)
 		statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
-		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, statsService)
+		chatStateRepo := db.NewChatStateRepository(queue)
+		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
 
 		numUsers := rapid.IntRange(0, 35).Draw(rt, "numUsers")
 		for i := 1; i <= numUsers; i++ {
@@ -85,7 +86,8 @@ func TestProperty20_UserDetailsCompleteness(t *testing.T) {
 		progressRepo := db.NewProgressRepository(queue)
 		answerRepo := db.NewAnswerRepository(queue)
 		statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
-		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, statsService)
+		chatStateRepo := db.NewChatStateRepository(queue)
+		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
 
 		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
 		firstName := rapid.StringMatching(`[A-Za-z]{0,10}`).Draw(rt, "firstName")

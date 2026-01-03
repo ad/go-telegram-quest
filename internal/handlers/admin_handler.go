@@ -143,6 +143,8 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.handleBlockFromDetails(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "unblock:"):
 		h.handleUnblockFromDetails(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "reset:"):
+		h.handleResetFromDetails(ctx, chatID, messageID, data)
 	case data == "admin:step_type:text":
 		h.setStepType(ctx, chatID, messageID, models.AnswerTypeText)
 	case data == "admin:step_type:image":
@@ -1012,6 +1014,7 @@ func BuildUserDetailsKeyboard(user *models.User) *tgmodels.InlineKeyboardMarkup 
 	return &tgmodels.InlineKeyboardMarkup{
 		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
 			{blockBtn},
+			{{Text: "🔄 Сбросить прогресс", CallbackData: fmt.Sprintf("reset:%d", user.ID)}},
 			{{Text: "⬅️ Назад", CallbackData: "admin:userlist"}},
 		},
 	}
@@ -1043,6 +1046,21 @@ func (h *AdminHandler) handleUnblockFromDetails(ctx context.Context, chatID int6
 	}
 
 	h.showUserDetails(ctx, chatID, messageID, fmt.Sprintf("user:%d", userID))
+}
+
+func (h *AdminHandler) handleResetFromDetails(ctx context.Context, chatID int64, messageID int, data string) {
+	userID, _ := parseInt64(strings.TrimPrefix(data, "reset:"))
+	if userID == 0 {
+		return
+	}
+
+	if err := h.userManager.ResetUserProgress(userID); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при сбросе прогресса", nil)
+		return
+	}
+
+	h.editOrSend(ctx, chatID, messageID, "✅ Прогресс пользователя сброшен", nil)
+	h.showUserDetails(ctx, chatID, 0, fmt.Sprintf("user:%d", userID))
 }
 
 func (h *AdminHandler) showQuestStateMenu(ctx context.Context, chatID int64, messageID int) {

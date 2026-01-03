@@ -51,14 +51,18 @@ type UserManager struct {
 	userRepo       *db.UserRepository
 	stepRepo       *db.StepRepository
 	progressRepo   *db.ProgressRepository
+	answerRepo     *db.AnswerRepository
+	chatStateRepo  *db.ChatStateRepository
 	statisticsCalc *UserStatisticsCalculator
 }
 
-func NewUserManager(userRepo *db.UserRepository, stepRepo *db.StepRepository, progressRepo *db.ProgressRepository, answerRepo *db.AnswerRepository, statisticsService *StatisticsService) *UserManager {
+func NewUserManager(userRepo *db.UserRepository, stepRepo *db.StepRepository, progressRepo *db.ProgressRepository, answerRepo *db.AnswerRepository, chatStateRepo *db.ChatStateRepository, statisticsService *StatisticsService) *UserManager {
 	return &UserManager{
 		userRepo:       userRepo,
 		stepRepo:       stepRepo,
 		progressRepo:   progressRepo,
+		answerRepo:     answerRepo,
+		chatStateRepo:  chatStateRepo,
 		statisticsCalc: NewUserStatisticsCalculator(answerRepo, progressRepo, statisticsService),
 	}
 }
@@ -172,4 +176,20 @@ func (m *UserManager) GetUserDetails(userID int64) (*UserDetails, error) {
 		IsCompleted: isCompleted,
 		Statistics:  statistics,
 	}, nil
+}
+
+func (m *UserManager) ResetUserProgress(userID int64) error {
+	if err := m.progressRepo.DeleteUserProgress(userID); err != nil {
+		return err
+	}
+
+	if err := m.answerRepo.DeleteUserAnswers(userID); err != nil {
+		return err
+	}
+
+	if err := m.chatStateRepo.Clear(userID); err != nil {
+		return err
+	}
+
+	return nil
 }

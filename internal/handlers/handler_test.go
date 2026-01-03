@@ -512,8 +512,8 @@ func TestProperty21_BlockButtonConditionalDisplay(t *testing.T) {
 			rt.Fatal("Keyboard should not be nil")
 		}
 
-		if len(keyboard.InlineKeyboard) < 2 {
-			rt.Fatal("Keyboard should have at least 2 rows")
+		if len(keyboard.InlineKeyboard) < 3 {
+			rt.Fatal("Keyboard should have at least 3 rows")
 		}
 
 		blockRow := keyboard.InlineKeyboard[0]
@@ -539,7 +539,18 @@ func TestProperty21_BlockButtonConditionalDisplay(t *testing.T) {
 			}
 		}
 
-		backRow := keyboard.InlineKeyboard[1]
+		resetRow := keyboard.InlineKeyboard[1]
+		if len(resetRow) != 1 {
+			rt.Fatalf("Reset row should have exactly 1 button, got %d", len(resetRow))
+		}
+		if resetRow[0].Text != "🔄 Сбросить прогресс" {
+			rt.Errorf("Expected reset button text '🔄 Сбросить прогресс', got '%s'", resetRow[0].Text)
+		}
+		if !containsUserID(resetRow[0].CallbackData, "reset:", userID) {
+			rt.Errorf("Expected reset callback 'reset:%d', got '%s'", userID, resetRow[0].CallbackData)
+		}
+
+		backRow := keyboard.InlineKeyboard[2]
 		if len(backRow) != 1 {
 			rt.Fatalf("Back row should have exactly 1 button, got %d", len(backRow))
 		}

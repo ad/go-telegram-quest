@@ -109,3 +109,11 @@ func (r *ProgressRepository) CountByStep(stepID int64, status models.ProgressSta
 	}
 	return result.(int), nil
 }
+
+func (r *ProgressRepository) DeleteUserProgress(userID int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`DELETE FROM user_progress WHERE user_id = ?`, userID)
+		return nil, err
+	})
+	return err
+}
