@@ -173,6 +173,7 @@ func TestAdminHandlerIntegration(t *testing.T) {
 	adminStateRepo := db.NewAdminStateRepository(dbQueue)
 	userRepo := db.NewUserRepository(dbQueue)
 	progressRepo := db.NewProgressRepository(dbQueue)
+	chatStateRepo := db.NewChatStateRepository(dbQueue)
 
 	adminID := int64(123456)
 

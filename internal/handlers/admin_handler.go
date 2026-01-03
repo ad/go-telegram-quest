@@ -131,6 +131,12 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.startReplaceImage(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:delete_image:"):
 		h.startDeleteImage(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:add_correct_img:"):
+		h.startAddCorrectImage(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:replace_correct_img:"):
+		h.startReplaceCorrectImage(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:delete_correct_img:"):
+		h.startDeleteCorrectImage(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:edit_setting:"):
 		h.startEditSetting(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "userlist:"):
@@ -320,6 +326,19 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
 		{Text: "📷 Изображения", CallbackData: fmt.Sprintf("admin:images:%d", stepID)},
 	})
+
+	if step.CorrectAnswerImage == "" {
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "➕ Картинка ответа", CallbackData: fmt.Sprintf("admin:add_correct_img:%d", stepID)},
+		})
+	} else {
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "🔄 Заменить картинку ответа", CallbackData: fmt.Sprintf("admin:replace_correct_img:%d", stepID)},
+		})
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "🗑 Удалить картинку ответа", CallbackData: fmt.Sprintf("admin:delete_correct_img:%d", stepID)},
+		})
+	}
 
 	toggleText := "⏸️ Отключить"
 	if !step.IsActive {
@@ -548,6 +567,10 @@ func (h *AdminHandler) handleStateInput(ctx context.Context, msg *tgmodels.Messa
 		return h.handleReplaceImage(ctx, msg, state)
 	case fsm.StateAdminDeleteImage:
 		return h.handleDeleteImage(ctx, msg, state)
+	case fsm.StateAdminAddCorrectImage:
+		return h.handleAddCorrectImage(ctx, msg, state)
+	case fsm.StateAdminReplaceCorrectImage:
+		return h.handleReplaceCorrectImage(ctx, msg, state)
 	case fsm.StateAdminEditSettingValue:
 		return h.handleEditSettingValue(ctx, msg, state)
 	}
@@ -866,6 +889,107 @@ func (h *AdminHandler) handleEditSettingValue(ctx context.Context, msg *tgmodels
 	})
 	h.showSettingsMenu(ctx, msg.Chat.ID, 0)
 	return true
+}
+
+func (h *AdminHandler) startAddCorrectImage(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:add_correct_img:"))
+	if stepID == 0 {
+		return
+	}
+
+	state := &models.AdminState{
+		UserID:        h.adminID,
+		CurrentState:  fsm.StateAdminAddCorrectImage,
+		EditingStepID: stepID,
+	}
+	h.adminStateRepo.Save(state)
+
+	h.editOrSend(ctx, chatID, messageID, "📷 Отправьте изображение для правильного ответа:\n\n/cancel - отмена", nil)
+}
+
+func (h *AdminHandler) handleAddCorrectImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if len(msg.Photo) == 0 {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Отправьте изображение",
+		})
+		return true
+	}
+
+	fileID := msg.Photo[len(msg.Photo)-1].FileID
+	if err := h.stepRepo.UpdateCorrectAnswerImage(state.EditingStepID, fileID); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при сохранении изображения",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ Изображение сохранено",
+	})
+	h.startEditStep(ctx, msg.Chat.ID, 0, fmt.Sprintf("admin:edit_step:%d", state.EditingStepID))
+	return true
+}
+
+func (h *AdminHandler) startReplaceCorrectImage(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:replace_correct_img:"))
+	if stepID == 0 {
+		return
+	}
+
+	state := &models.AdminState{
+		UserID:        h.adminID,
+		CurrentState:  fsm.StateAdminReplaceCorrectImage,
+		EditingStepID: stepID,
+	}
+	h.adminStateRepo.Save(state)
+
+	h.editOrSend(ctx, chatID, messageID, "🔄 Отправьте новое изображение для правильного ответа:\n\n/cancel - отмена", nil)
+}
+
+func (h *AdminHandler) handleReplaceCorrectImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if len(msg.Photo) == 0 {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Отправьте изображение",
+		})
+		return true
+	}
+
+	fileID := msg.Photo[len(msg.Photo)-1].FileID
+	if err := h.stepRepo.UpdateCorrectAnswerImage(state.EditingStepID, fileID); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при замене изображения",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ Изображение заменено",
+	})
+	h.startEditStep(ctx, msg.Chat.ID, 0, fmt.Sprintf("admin:edit_step:%d", state.EditingStepID))
+	return true
+}
+
+func (h *AdminHandler) startDeleteCorrectImage(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:delete_correct_img:"))
+	if stepID == 0 {
+		return
+	}
+
+	if err := h.stepRepo.UpdateCorrectAnswerImage(stepID, ""); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при удалении изображения", nil)
+		return
+	}
+
+	h.editOrSend(ctx, chatID, messageID, "✅ Изображение удалено", nil)
+	h.startEditStep(ctx, chatID, 0, fmt.Sprintf("admin:edit_step:%d", stepID))
 }
 
 func truncateText(text string, maxLen int) string {

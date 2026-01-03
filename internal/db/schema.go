@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS steps (
     has_auto_check BOOLEAN DEFAULT FALSE,
     is_active BOOLEAN DEFAULT TRUE,
     is_deleted BOOLEAN DEFAULT FALSE,
+    correct_answer_image TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -105,6 +106,7 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
 
 const migrations = `
 ALTER TABLE users ADD COLUMN is_blocked BOOLEAN DEFAULT FALSE;
+ALTER TABLE steps ADD COLUMN correct_answer_image TEXT;
 `
 
 func InitSchema(db *sql.DB) error {

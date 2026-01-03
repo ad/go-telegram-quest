@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
@@ -169,6 +168,8 @@ func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.Call
 		h.handleAdminDecision(ctx, callback)
 	} else if strings.HasPrefix(callback.Data, "block:") {
 		h.handleBlockUser(ctx, callback)
+	} else if strings.HasPrefix(callback.Data, "next_step:") {
+		h.handleNextStepCallback(ctx, callback)
 	}
 }
 
@@ -350,14 +351,28 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		correctMsg = fmt.Sprintf("%s\n\n📊 До этого шага дошли %d%% участников", correctMsg, percentage)
 	}
 
-	h.msgManager.SendReaction(ctx, userID, correctMsg)
-	h.updateStatistics(ctx)
+	nextStepBtn := tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "Далее ➡️", CallbackData: fmt.Sprintf("next_step:%d", step.StepOrder)}},
+		},
+	}
 
-	// Запускаем горутину для задержки перед переходом к следующему шагу
-	go func() {
-		time.Sleep(time.Duration(3) * time.Second)
-		h.moveToNextStep(ctx, userID, step.StepOrder)
-	}()
+	if step.CorrectAnswerImage != "" {
+		h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
+			ChatID:      userID,
+			Photo:       &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
+			Caption:     correctMsg,
+			ReplyMarkup: nextStepBtn,
+		})
+	} else {
+		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+			ChatID:      userID,
+			Text:        correctMsg,
+			ReplyMarkup: nextStepBtn,
+		})
+	}
+
+	h.updateStatistics(ctx)
 }
 
 func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOrder int) {
@@ -690,7 +705,20 @@ func (h *BotHandler) updateStatistics(ctx context.Context) {
 			Text:   text,
 		})
 		if err == nil && msg != nil {
-			h.adminMessagesRepo.Set("statistics", h.adminID, msg.ID)
 		}
 	}
+}
+
+func (h *BotHandler) handleNextStepCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
+	parts := strings.Split(callback.Data, ":")
+	if len(parts) != 2 {
+		return
+	}
+
+	currentOrder, _ := parseInt64(parts[1])
+	h.moveToNextStep(ctx, callback.From.ID, int(currentOrder))
+
+	h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: callback.ID,
+	})
 }

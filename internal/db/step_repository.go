@@ -18,9 +18,9 @@ func NewStepRepository(queue *DBQueue) *StepRepository {
 func (r *StepRepository) Create(step *models.Step) (int64, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		res, err := db.Exec(`
-			INSERT INTO steps (step_order, text, answer_type, has_auto_check, is_active, is_deleted)
-			VALUES (?, ?, ?, ?, ?, ?)
-		`, step.StepOrder, step.Text, step.AnswerType, step.HasAutoCheck, step.IsActive, step.IsDeleted)
+			INSERT INTO steps (step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, step.StepOrder, step.Text, step.AnswerType, step.HasAutoCheck, step.IsActive, step.IsDeleted, step.CorrectAnswerImage)
 		if err != nil {
 			return nil, err
 		}
@@ -41,9 +41,10 @@ func (r *StepRepository) Update(step *models.Step) error {
 				answer_type = ?,
 				has_auto_check = ?,
 				is_active = ?,
-				is_deleted = ?
+				is_deleted = ?,
+				correct_answer_image = ?
 			WHERE id = ?
-		`, step.StepOrder, step.Text, step.AnswerType, step.HasAutoCheck, step.IsActive, step.IsDeleted, step.ID)
+		`, step.StepOrder, step.Text, step.AnswerType, step.HasAutoCheck, step.IsActive, step.IsDeleted, step.CorrectAnswerImage, step.ID)
 		return nil, err
 	})
 	return err
@@ -60,7 +61,7 @@ func (r *StepRepository) SoftDelete(id int64) error {
 func (r *StepRepository) GetActive() ([]*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		rows, err := db.Query(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, created_at
 			FROM steps
 			WHERE is_active = TRUE AND is_deleted = FALSE
 			ORDER BY step_order
@@ -80,7 +81,7 @@ func (r *StepRepository) GetActive() ([]*models.Step, error) {
 func (r *StepRepository) GetAll() ([]*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		rows, err := db.Query(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, created_at
 			FROM steps
 			WHERE is_deleted = FALSE
 			ORDER BY step_order
@@ -145,6 +146,14 @@ func (r *StepRepository) UpdateText(id int64, text string) error {
 	return err
 }
 
+func (r *StepRepository) UpdateCorrectAnswerImage(id int64, imageFileID string) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`UPDATE steps SET correct_answer_image = ? WHERE id = ?`, imageFileID, id)
+		return nil, err
+	})
+	return err
+}
+
 func (r *StepRepository) DeleteImages(stepID int64) error {
 	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		_, err := db.Exec(`DELETE FROM step_images WHERE step_id = ?`, stepID)
@@ -164,7 +173,7 @@ func (r *StepRepository) DeleteAnswers(stepID int64) error {
 func (r *StepRepository) GetByID(id int64) (*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		row := db.QueryRow(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, created_at
 			FROM steps WHERE id = ?
 		`, id)
 
@@ -183,7 +192,7 @@ func (r *StepRepository) GetByID(id int64) (*models.Step, error) {
 func (r *StepRepository) GetNextActive(afterOrder int) (*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		row := db.QueryRow(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, created_at
 			FROM steps
 			WHERE is_active = TRUE AND is_deleted = FALSE AND step_order > ?
 			ORDER BY step_order
@@ -276,12 +285,16 @@ func (r *StepRepository) AddAnswer(stepID int64, answer string) error {
 
 func (r *StepRepository) scanStep(row *sql.Row) (*models.Step, error) {
 	var step models.Step
+	var correctImg sql.NullString
 	err := row.Scan(
 		&step.ID, &step.StepOrder, &step.Text, &step.AnswerType,
-		&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &step.CreatedAt,
+		&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &correctImg, &step.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if correctImg.Valid {
+		step.CorrectAnswerImage = correctImg.String
 	}
 	return &step, nil
 }
@@ -290,11 +303,15 @@ func (r *StepRepository) scanSteps(db *sql.DB, rows *sql.Rows) ([]*models.Step, 
 	var steps []*models.Step
 	for rows.Next() {
 		var step models.Step
+		var correctImg sql.NullString
 		if err := rows.Scan(
 			&step.ID, &step.StepOrder, &step.Text, &step.AnswerType,
-			&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &step.CreatedAt,
+			&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &correctImg, &step.CreatedAt,
 		); err != nil {
 			return nil, err
+		}
+		if correctImg.Valid {
+			step.CorrectAnswerImage = correctImg.String
 		}
 		loaded, err := r.loadStepRelations(db, &step)
 		if err != nil {
