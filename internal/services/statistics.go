@@ -174,6 +174,25 @@ func (s *StatisticsService) GetUserLeaderboardPosition(userID int64) (int, int, 
 	return results[0], results[1], nil
 }
 
+func (s *StatisticsService) GetUserProgress(userID int64) (int, int, float64, error) {
+	activeCount, err := s.stepRepo.GetActiveStepsCount()
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	answeredCount, err := s.stepRepo.GetAnsweredStepsCount(userID)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	var percentage float64
+	if activeCount > 0 {
+		percentage = float64(answeredCount) / float64(activeCount) * 100
+	}
+
+	return answeredCount, activeCount, percentage, nil
+}
+
 func sortLeadersByMaxStep(users []userWithMaxStep) []*models.User {
 	sort.Slice(users, func(i, j int) bool {
 		if users[i].maxStep != users[j].maxStep {

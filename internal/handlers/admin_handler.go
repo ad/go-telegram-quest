@@ -249,7 +249,7 @@ func (h *AdminHandler) showStepsList(ctx context.Context, chatID int64, messageI
 
 	var buttons [][]tgmodels.InlineKeyboardButton
 	for _, step := range steps {
-		status := "✅"
+		status := ""
 		if !step.IsActive {
 			status = "⏸️"
 		}

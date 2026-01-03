@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
@@ -249,10 +250,13 @@ func (h *BotHandler) sendStep(ctx context.Context, userID int64, step *models.St
 		answerHint = "\n\n📷 Отправьте фото"
 	}
 
+	// Добавляем прогресс-бар
+	progressText := h.getProgressText(userID)
+
 	stepWithHint := &models.Step{
 		ID:           step.ID,
 		StepOrder:    step.StepOrder,
-		Text:         step.Text + answerHint,
+		Text:         step.Text + answerHint + progressText,
 		AnswerType:   step.AnswerType,
 		HasAutoCheck: step.HasAutoCheck,
 		IsActive:     step.IsActive,
@@ -262,6 +266,20 @@ func (h *BotHandler) sendStep(ctx context.Context, userID int64, step *models.St
 	}
 
 	h.msgManager.SendTask(ctx, userID, stepWithHint)
+}
+
+func (h *BotHandler) getProgressText(userID int64) string {
+	_, total, percentage, err := h.statsService.GetUserProgress(userID)
+	if err != nil || total == 0 {
+		return ""
+	}
+
+	barLength := int(percentage / 10)
+	if barLength > 10 {
+		barLength = 10
+	}
+
+	return strings.Repeat("▰", barLength) + strings.Repeat("▱", 10-barLength)
 }
 
 func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message) {
@@ -335,7 +353,11 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	h.msgManager.SendReaction(ctx, userID, correctMsg)
 	h.updateStatistics(ctx)
 
-	h.moveToNextStep(ctx, userID, step.StepOrder)
+	// Запускаем горутину для задержки перед переходом к следующему шагу
+	go func() {
+		time.Sleep(time.Duration(3) * time.Second)
+		h.moveToNextStep(ctx, userID, step.StepOrder)
+	}()
 }
 
 func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOrder int) {

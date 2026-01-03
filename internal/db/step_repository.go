@@ -497,6 +497,38 @@ func (r *StepRepository) CanMoveDown(stepID int64) (bool, error) {
 	return result.(bool), nil
 }
 
+func (r *StepRepository) GetActiveStepsCount() (int, error) {
+	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var count int
+		err := db.QueryRow(`
+			SELECT COUNT(*) FROM steps 
+			WHERE is_active = TRUE AND is_deleted = FALSE
+		`).Scan(&count)
+		return count, err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.(int), nil
+}
+
+func (r *StepRepository) GetAnsweredStepsCount(userID int64) (int, error) {
+	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var count int
+		err := db.QueryRow(`
+			SELECT COUNT(*) FROM user_progress p
+			JOIN steps s ON p.step_id = s.id
+			WHERE p.user_id = ? AND p.status = 'approved' 
+			AND s.is_active = TRUE AND s.is_deleted = FALSE
+		`, userID).Scan(&count)
+		return count, err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.(int), nil
+}
+
 func (r *StepRepository) loadStepRelations(db *sql.DB, step *models.Step) (*models.Step, error) {
 	imgRows, err := db.Query(`
 		SELECT id, step_id, file_id, position
