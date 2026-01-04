@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS admin_state (
     new_step_type TEXT DEFAULT 'text',
     new_step_images TEXT DEFAULT '[]',
     new_step_answers TEXT DEFAULT '[]',
-    editing_setting TEXT DEFAULT ''
+    editing_setting TEXT DEFAULT '',
+    new_hint_text TEXT DEFAULT ''
 );
 `
 
@@ -119,6 +120,7 @@ ALTER TABLE steps ADD COLUMN hint_image TEXT DEFAULT '';
 ALTER TABLE user_chat_state ADD COLUMN hint_message_id INTEGER DEFAULT 0;
 ALTER TABLE user_chat_state ADD COLUMN current_step_hint_used BOOLEAN DEFAULT FALSE;
 ALTER TABLE user_answers ADD COLUMN hint_used BOOLEAN DEFAULT FALSE;
+ALTER TABLE admin_state ADD COLUMN new_hint_text TEXT DEFAULT '';
 `
 
 func InitSchema(db *sql.DB) error {

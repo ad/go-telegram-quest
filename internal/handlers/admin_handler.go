@@ -316,6 +316,11 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 	sb.WriteString(fmt.Sprintf("💬 Тип ответа: %s\n", step.AnswerType))
 	sb.WriteString(fmt.Sprintf("✅ Вариантов ответа: %d\n", len(step.Answers)))
 
+	hasHint := step.HasHint()
+	if hasHint {
+		sb.WriteString("Подсказка: есть\n")
+	}
+
 	status := "Активен"
 	if !step.IsActive {
 		status = "Отключён"
