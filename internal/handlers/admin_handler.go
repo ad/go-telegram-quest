@@ -318,7 +318,7 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 
 	hasHint := step.HasHint()
 	if hasHint {
-		sb.WriteString("Подсказка: есть\n")
+		sb.WriteString("💡 Подсказка: есть\n")
 	}
 
 	status := "Активен"
