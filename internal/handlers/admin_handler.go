@@ -1903,13 +1903,10 @@ func (h *AdminHandler) exportSteps(ctx context.Context, chatID int64, messageID 
 
 func (h *AdminHandler) formatStepForExport(step *models.Step) string {
 	var stepData strings.Builder
-
-	stepData.WriteString(fmt.Sprintf("🔢 ЗАДАНИЕ %d\n", step.StepOrder))
-	stepData.WriteString(strings.Repeat("-", 20) + "\n")
 	stepData.WriteString(step.Text + "\n\n")
 
 	if len(step.Answers) > 0 {
-		stepData.WriteString("✅ ОТВЕТЫ:\n")
+		stepData.WriteString("Варианты ответов:\n")
 		for i, answer := range step.Answers {
 			stepData.WriteString(fmt.Sprintf("   %d. %s\n", i+1, answer))
 		}
@@ -1917,14 +1914,14 @@ func (h *AdminHandler) formatStepForExport(step *models.Step) string {
 	}
 
 	if step.HasHint() {
-		stepData.WriteString("💡 ПОДСКАЗКА:\n")
+		stepData.WriteString("Подсказка:\n")
 		if step.HintText != "" {
-			stepData.WriteString("📝 Текст: " + step.HintText + "\n")
+			stepData.WriteString(step.HintText + "\n")
+		} else {
+			stepData.WriteString("Изображение\n")
 		}
 		stepData.WriteString("\n")
 	}
-
-	stepData.WriteString("\n")
 
 	return stepData.String()
 }
