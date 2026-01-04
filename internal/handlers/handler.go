@@ -249,7 +249,7 @@ func (h *BotHandler) sendStep(ctx context.Context, userID int64, step *models.St
 	answerHint := ""
 	switch step.AnswerType {
 	case models.AnswerTypeText:
-		answerHint = "\n\n📝 Ответьте текстом"
+		// answerHint = "\n\n📝 Ответьте текстом или числом"
 	case models.AnswerTypeImage:
 		answerHint = "\n\n📷 Отправьте фото"
 	}
@@ -357,7 +357,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 
 	nextStepBtn := tgmodels.InlineKeyboardMarkup{
 		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
-			{{Text: "Далее ➡️", CallbackData: fmt.Sprintf("next_step:%d", step.StepOrder)}},
+			{{Text: "Следующий вопрос ➡️", CallbackData: fmt.Sprintf("next_step:%d", step.StepOrder)}},
 		},
 	}
 
