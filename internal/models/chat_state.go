@@ -5,4 +5,6 @@ type ChatState struct {
 	LastTaskMessageID       int
 	LastUserAnswerMessageID int
 	LastReactionMessageID   int
+	HintMessageID           int
+	CurrentStepHintUsed     bool
 }

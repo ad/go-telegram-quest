@@ -31,4 +31,8 @@ const (
 	StateAdminEditSettingValue    = "admin_edit_setting_value"
 	StateAdminUserList            = "admin_user_list"
 	StateAdminUserDetails         = "admin_user_details"
+	StateAdminAddHintText         = "admin_add_hint_text"
+	StateAdminAddHintImage        = "admin_add_hint_image"
+	StateAdminEditHintText        = "admin_edit_hint_text"
+	StateAdminEditHintImage       = "admin_edit_hint_image"
 )

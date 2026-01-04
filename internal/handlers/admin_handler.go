@@ -125,6 +125,16 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.startDeleteAnswer(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:images:"):
 		h.showImagesMenu(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:hint:"):
+		h.showHintMenu(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:hint_add:"):
+		h.startAddHint(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:hint_edit_text:"):
+		h.startEditHintText(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:hint_edit_image:"):
+		h.startEditHintImage(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:hint_delete:"):
+		h.deleteHint(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:add_image:"):
 		h.startAddImage(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:replace_image:"):
@@ -163,6 +173,8 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.skipAnswers(ctx, chatID, messageID)
 	case data == "admin:done_answers":
 		h.doneAnswers(ctx, chatID, messageID)
+	case data == "admin:skip_hint_image":
+		h.skipHintImage(ctx, chatID, messageID)
 	default:
 		return false
 	}
@@ -323,6 +335,10 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
 		{Text: "📷 Изображения", CallbackData: fmt.Sprintf("admin:images:%d", stepID)},
+	})
+
+	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+		{Text: "💡 Подсказка", CallbackData: fmt.Sprintf("admin:hint:%d", stepID)},
 	})
 
 	if step.CorrectAnswerImage == "" {
@@ -571,6 +587,14 @@ func (h *AdminHandler) handleStateInput(ctx context.Context, msg *tgmodels.Messa
 		return h.handleReplaceCorrectImage(ctx, msg, state)
 	case fsm.StateAdminEditSettingValue:
 		return h.handleEditSettingValue(ctx, msg, state)
+	case fsm.StateAdminAddHintText:
+		return h.handleAddHintText(ctx, msg, state)
+	case fsm.StateAdminAddHintImage:
+		return h.handleAddHintImage(ctx, msg, state)
+	case fsm.StateAdminEditHintText:
+		return h.handleEditHintText(ctx, msg, state)
+	case fsm.StateAdminEditHintImage:
+		return h.handleEditHintImage(ctx, msg, state)
 	}
 	return false
 }
@@ -1560,4 +1584,250 @@ func (h *AdminHandler) handleDeleteImage(ctx context.Context, msg *tgmodels.Mess
 	})
 	h.showImagesMenu(ctx, msg.Chat.ID, 0, fmt.Sprintf("admin:images:%d", state.EditingStepID))
 	return true
+}
+
+func (h *AdminHandler) showHintMenu(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:hint:"))
+	if stepID == 0 {
+		return
+	}
+
+	step, err := h.stepRepo.GetByID(stepID)
+	if err != nil || step == nil {
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("💡 Подсказка для шага %d\n\n", step.StepOrder))
+
+	if step.HasHint() {
+		sb.WriteString("✅ Подсказка установлена\n\n")
+		if step.HintText != "" {
+			hintPreview := step.HintText
+			if len([]rune(hintPreview)) > 100 {
+				hintPreview = string([]rune(hintPreview)[:100]) + "..."
+			}
+			sb.WriteString(fmt.Sprintf("📝 Текст: %s\n", hintPreview))
+		}
+		if step.HintImage != "" {
+			sb.WriteString("🖼 Изображение: есть\n")
+		}
+	} else {
+		sb.WriteString("❌ Подсказка не установлена")
+	}
+
+	var buttons [][]tgmodels.InlineKeyboardButton
+
+	if step.HasHint() {
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "✏️ Редактировать текст", CallbackData: fmt.Sprintf("admin:hint_edit_text:%d", stepID)},
+		})
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "🖼 Редактировать изображение", CallbackData: fmt.Sprintf("admin:hint_edit_image:%d", stepID)},
+		})
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "🗑 Удалить подсказку", CallbackData: fmt.Sprintf("admin:hint_delete:%d", stepID)},
+		})
+	} else {
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "➕ Добавить подсказку", CallbackData: fmt.Sprintf("admin:hint_add:%d", stepID)},
+		})
+	}
+
+	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+		{Text: "⬅️ Назад", CallbackData: fmt.Sprintf("admin:edit_step:%d", stepID)},
+	})
+
+	h.editOrSend(ctx, chatID, messageID, sb.String(), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
+}
+func (h *AdminHandler) startAddHint(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:hint_add:"))
+	if stepID == 0 {
+		return
+	}
+
+	state := &models.AdminState{
+		UserID:        h.adminID,
+		CurrentState:  fsm.StateAdminAddHintText,
+		EditingStepID: stepID,
+	}
+	h.adminStateRepo.Save(state)
+
+	h.editOrSend(ctx, chatID, messageID, "📝 Введите текст подсказки:\n\n/cancel - отмена", nil)
+}
+
+func (h *AdminHandler) handleAddHintText(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if msg.Text == "" {
+		return false
+	}
+
+	state.NewHintText = msg.Text
+	state.CurrentState = fsm.StateAdminAddHintImage
+	h.adminStateRepo.Save(state)
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "⏭️ Пропустить", CallbackData: "admin:skip_hint_image"}},
+		},
+	}
+
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID:      msg.Chat.ID,
+		Text:        "🖼 Отправьте изображение для подсказки (опционально):\n\nИли нажмите «Пропустить»",
+		ReplyMarkup: keyboard,
+	})
+	return true
+}
+
+func (h *AdminHandler) handleAddHintImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	var hintImage string
+	if len(msg.Photo) > 0 {
+		hintImage = msg.Photo[len(msg.Photo)-1].FileID
+	}
+
+	if err := h.stepRepo.UpdateHint(state.EditingStepID, state.NewHintText, hintImage); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при сохранении подсказки",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ Подсказка добавлена",
+	})
+	h.showHintMenu(ctx, msg.Chat.ID, 0, fmt.Sprintf("admin:hint:%d", state.EditingStepID))
+	return true
+}
+
+func (h *AdminHandler) startEditHintText(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:hint_edit_text:"))
+	if stepID == 0 {
+		return
+	}
+
+	step, err := h.stepRepo.GetByID(stepID)
+	if err != nil || step == nil {
+		return
+	}
+
+	state := &models.AdminState{
+		UserID:        h.adminID,
+		CurrentState:  fsm.StateAdminEditHintText,
+		EditingStepID: stepID,
+	}
+	h.adminStateRepo.Save(state)
+
+	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("📝 Введите новый текст подсказки:\n\nТекущий текст:\n%s\n\n/cancel - отмена", step.HintText), nil)
+}
+
+func (h *AdminHandler) handleEditHintText(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if msg.Text == "" {
+		return false
+	}
+
+	step, err := h.stepRepo.GetByID(state.EditingStepID)
+	if err != nil || step == nil {
+		return false
+	}
+
+	if err := h.stepRepo.UpdateHint(state.EditingStepID, msg.Text, step.HintImage); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при обновлении текста подсказки",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ Текст подсказки обновлён",
+	})
+	h.showHintMenu(ctx, msg.Chat.ID, 0, fmt.Sprintf("admin:hint:%d", state.EditingStepID))
+	return true
+}
+
+func (h *AdminHandler) startEditHintImage(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:hint_edit_image:"))
+	if stepID == 0 {
+		return
+	}
+
+	state := &models.AdminState{
+		UserID:        h.adminID,
+		CurrentState:  fsm.StateAdminEditHintImage,
+		EditingStepID: stepID,
+	}
+	h.adminStateRepo.Save(state)
+
+	h.editOrSend(ctx, chatID, messageID, "🖼 Отправьте новое изображение для подсказки:\n\n/cancel - отмена", nil)
+}
+
+func (h *AdminHandler) handleEditHintImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if len(msg.Photo) == 0 {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Отправьте изображение",
+		})
+		return true
+	}
+
+	step, err := h.stepRepo.GetByID(state.EditingStepID)
+	if err != nil || step == nil {
+		return false
+	}
+
+	fileID := msg.Photo[len(msg.Photo)-1].FileID
+	if err := h.stepRepo.UpdateHint(state.EditingStepID, step.HintText, fileID); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при обновлении изображения подсказки",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ Изображение подсказки обновлено",
+	})
+	h.showHintMenu(ctx, msg.Chat.ID, 0, fmt.Sprintf("admin:hint:%d", state.EditingStepID))
+	return true
+}
+
+func (h *AdminHandler) deleteHint(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:hint_delete:"))
+	if stepID == 0 {
+		return
+	}
+
+	if err := h.stepRepo.ClearHint(stepID); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при удалении подсказки", nil)
+		return
+	}
+
+	h.editOrSend(ctx, chatID, messageID, "✅ Подсказка удалена", nil)
+	h.showHintMenu(ctx, chatID, 0, fmt.Sprintf("admin:hint:%d", stepID))
+}
+func (h *AdminHandler) skipHintImage(ctx context.Context, chatID int64, messageID int) {
+	state, _ := h.adminStateRepo.Get(h.adminID)
+	if state == nil || state.CurrentState != fsm.StateAdminAddHintImage {
+		return
+	}
+
+	if err := h.stepRepo.UpdateHint(state.EditingStepID, state.NewHintText, ""); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при сохранении подсказки", nil)
+		return
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	h.editOrSend(ctx, chatID, messageID, "✅ Подсказка добавлена", nil)
+	h.showHintMenu(ctx, chatID, 0, fmt.Sprintf("admin:hint:%d", state.EditingStepID))
 }

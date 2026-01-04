@@ -41,6 +41,8 @@ func setupTestDB(t *testing.T) (*db.DBQueue, func()) {
 			is_active BOOLEAN DEFAULT TRUE,
 			is_deleted BOOLEAN DEFAULT FALSE,
 			correct_answer_image TEXT,
+			hint_text TEXT DEFAULT '',
+			hint_image TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
@@ -86,6 +88,7 @@ func setupTestDB(t *testing.T) (*db.DBQueue, func()) {
 			user_id INTEGER NOT NULL REFERENCES users(id),
 			step_id INTEGER NOT NULL REFERENCES steps(id),
 			text_answer TEXT,
+			hint_used BOOLEAN DEFAULT FALSE,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
@@ -118,6 +121,19 @@ func setupTestDB(t *testing.T) (*db.DBQueue, func()) {
 			('final_message', 'Congratulations!'),
 			('correct_answer_message', 'Correct!'),
 			('wrong_answer_message', 'Wrong!')
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS user_chat_state (
+			user_id INTEGER PRIMARY KEY REFERENCES users(id),
+			last_task_message_id INTEGER,
+			last_user_answer_message_id INTEGER,
+			last_reaction_message_id INTEGER,
+			hint_message_id INTEGER DEFAULT 0,
+			current_step_hint_used BOOLEAN DEFAULT FALSE
+		)
 	`)
 	if err != nil {
 		t.Fatal(err)
@@ -569,6 +585,65 @@ func containsUserID(callbackData, prefix string, userID int64) bool {
 	return callbackData == expected
 }
 
+func TestProperty2_HintButtonDisplayLogic(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
+		stepID := rapid.Int64Range(1, 1000).Draw(rt, "stepID")
+
+		hintText := rapid.StringMatching(`[a-zA-Z ]{0,50}`).Draw(rt, "hintText")
+		hintImage := rapid.StringMatching(`[a-zA-Z0-9_]{0,20}`).Draw(rt, "hintImage")
+		showHintButton := rapid.Bool().Draw(rt, "showHintButton")
+
+		step := &models.Step{
+			ID:        stepID,
+			StepOrder: 1,
+			Text:      "Test step",
+			HintText:  hintText,
+			HintImage: hintImage,
+		}
+
+		hasHint := step.HasHint()
+		expectedHintButton := hasHint && showHintButton
+
+		keyboard := BuildHintKeyboard(userID, stepID)
+
+		if keyboard == nil {
+			rt.Fatal("BuildHintKeyboard should never return nil")
+		}
+
+		if len(keyboard.InlineKeyboard) != 1 {
+			rt.Fatalf("Hint keyboard should have exactly 1 row, got %d", len(keyboard.InlineKeyboard))
+		}
+
+		if len(keyboard.InlineKeyboard[0]) != 1 {
+			rt.Fatalf("Hint keyboard row should have exactly 1 button, got %d", len(keyboard.InlineKeyboard[0]))
+		}
+
+		hintBtn := keyboard.InlineKeyboard[0][0]
+
+		if hintBtn.Text != "💡 Подсказка" {
+			rt.Errorf("Expected hint button text '💡 Подсказка', got '%s'", hintBtn.Text)
+		}
+
+		expectedCallback := fmt.Sprintf("hint:%d:%d", userID, stepID)
+		if hintBtn.CallbackData != expectedCallback {
+			rt.Errorf("Expected callback '%s', got '%s'", expectedCallback, hintBtn.CallbackData)
+		}
+
+		if hasHint != (hintText != "" || hintImage != "") {
+			rt.Errorf("HasHint() should return true if and only if hintText or hintImage is non-empty")
+		}
+
+		if expectedHintButton && !hasHint {
+			rt.Error("Hint button should not be shown if step has no hint")
+		}
+
+		if expectedHintButton && !showHintButton {
+			rt.Error("Hint button should not be shown if showHintButton is false")
+		}
+	})
+}
+
 func TestProperty2_AdminAccessInvariant(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		queue, cleanup := setupTestDB(t)
@@ -630,6 +705,94 @@ func TestProperty2_AdminAccessInvariant(t *testing.T) {
 			if notificationRegular == "" {
 				rt.Errorf("Regular users should receive notifications when quest state is '%s'", questState)
 			}
+		}
+	})
+}
+
+func TestProperty3_HintUsageTracking(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupTestDB(t)
+		defer cleanup()
+
+		userRepo := db.NewUserRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+		answerRepo := db.NewAnswerRepository(queue)
+		chatStateRepo := db.NewChatStateRepository(queue)
+
+		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
+		stepID := rapid.Int64Range(1, 1000).Draw(rt, "stepID")
+
+		user := &models.User{
+			ID:        userID,
+			FirstName: "Test",
+		}
+		if err := userRepo.CreateOrUpdate(user); err != nil {
+			rt.Fatal(err)
+		}
+
+		hintText := rapid.StringMatching(`[a-zA-Z ]{1,50}`).Draw(rt, "hintText")
+		step := &models.Step{
+			ID:        stepID,
+			StepOrder: 1,
+			Text:      "Test step",
+			HintText:  hintText,
+			IsActive:  true,
+		}
+		createdStepID, err := stepRepo.Create(step)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		hintUsed := rapid.Bool().Draw(rt, "hintUsed")
+
+		if err := chatStateRepo.SetHintUsed(userID, hintUsed); err != nil {
+			rt.Fatal(err)
+		}
+
+		chatState, err := chatStateRepo.Get(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		if chatState.CurrentStepHintUsed != hintUsed {
+			rt.Errorf("Expected CurrentStepHintUsed to be %v, got %v", hintUsed, chatState.CurrentStepHintUsed)
+		}
+
+		answerText := rapid.StringMatching(`[a-zA-Z ]{1,20}`).Draw(rt, "answerText")
+		answerID, err := answerRepo.CreateTextAnswer(userID, createdStepID, answerText, chatState.CurrentStepHintUsed)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		if answerID == 0 {
+			rt.Fatal("Answer ID should not be 0")
+		}
+
+		var storedHintUsed bool
+		err = queue.DB().QueryRow(`SELECT hint_used FROM user_answers WHERE id = ?`, answerID).Scan(&storedHintUsed)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		if storedHintUsed != hintUsed {
+			rt.Errorf("Expected stored hint_used to be %v, got %v", hintUsed, storedHintUsed)
+		}
+
+		if err := chatStateRepo.ResetHintUsed(userID); err != nil {
+			rt.Fatal(err)
+		}
+
+		resetChatState, err := chatStateRepo.Get(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		if resetChatState.CurrentStepHintUsed != false {
+			rt.Error("CurrentStepHintUsed should be false after reset")
+		}
+
+		if resetChatState.HintMessageID != 0 {
+			rt.Error("HintMessageID should be 0 after reset")
 		}
 	})
 }

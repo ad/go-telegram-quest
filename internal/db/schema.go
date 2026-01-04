@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS steps (
     is_active BOOLEAN DEFAULT TRUE,
     is_deleted BOOLEAN DEFAULT FALSE,
     correct_answer_image TEXT,
+    hint_text TEXT DEFAULT '',
+    hint_image TEXT DEFAULT '',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -54,6 +56,7 @@ CREATE TABLE IF NOT EXISTS user_answers (
     user_id INTEGER NOT NULL REFERENCES users(id),
     step_id INTEGER NOT NULL REFERENCES steps(id),
     text_answer TEXT,
+    hint_used BOOLEAN DEFAULT FALSE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -68,7 +71,9 @@ CREATE TABLE IF NOT EXISTS user_chat_state (
     user_id INTEGER PRIMARY KEY REFERENCES users(id),
     last_task_message_id INTEGER,
     last_user_answer_message_id INTEGER,
-    last_reaction_message_id INTEGER
+    last_reaction_message_id INTEGER,
+    hint_message_id INTEGER DEFAULT 0,
+    current_step_hint_used BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS admin_messages (
@@ -109,6 +114,11 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
 const migrations = `
 ALTER TABLE users ADD COLUMN is_blocked BOOLEAN DEFAULT FALSE;
 ALTER TABLE steps ADD COLUMN correct_answer_image TEXT;
+ALTER TABLE steps ADD COLUMN hint_text TEXT DEFAULT '';
+ALTER TABLE steps ADD COLUMN hint_image TEXT DEFAULT '';
+ALTER TABLE user_chat_state ADD COLUMN hint_message_id INTEGER DEFAULT 0;
+ALTER TABLE user_chat_state ADD COLUMN current_step_hint_used BOOLEAN DEFAULT FALSE;
+ALTER TABLE user_answers ADD COLUMN hint_used BOOLEAN DEFAULT FALSE;
 `
 
 func InitSchema(db *sql.DB) error {

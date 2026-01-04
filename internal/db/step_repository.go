@@ -61,7 +61,7 @@ func (r *StepRepository) SoftDelete(id int64) error {
 func (r *StepRepository) GetActive() ([]*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		rows, err := db.Query(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, hint_text, hint_image, created_at
 			FROM steps
 			WHERE is_active = TRUE AND is_deleted = FALSE
 			ORDER BY step_order
@@ -81,7 +81,7 @@ func (r *StepRepository) GetActive() ([]*models.Step, error) {
 func (r *StepRepository) GetAll() ([]*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		rows, err := db.Query(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, hint_text, hint_image, created_at
 			FROM steps
 			WHERE is_deleted = FALSE
 			ORDER BY step_order
@@ -154,6 +154,22 @@ func (r *StepRepository) UpdateCorrectAnswerImage(id int64, imageFileID string) 
 	return err
 }
 
+func (r *StepRepository) UpdateHint(id int64, hintText, hintImage string) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`UPDATE steps SET hint_text = ?, hint_image = ? WHERE id = ?`, hintText, hintImage, id)
+		return nil, err
+	})
+	return err
+}
+
+func (r *StepRepository) ClearHint(id int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`UPDATE steps SET hint_text = '', hint_image = '' WHERE id = ?`, id)
+		return nil, err
+	})
+	return err
+}
+
 func (r *StepRepository) DeleteImages(stepID int64) error {
 	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		_, err := db.Exec(`DELETE FROM step_images WHERE step_id = ?`, stepID)
@@ -173,7 +189,7 @@ func (r *StepRepository) DeleteAnswers(stepID int64) error {
 func (r *StepRepository) GetByID(id int64) (*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		row := db.QueryRow(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, hint_text, hint_image, created_at
 			FROM steps WHERE id = ?
 		`, id)
 
@@ -192,7 +208,7 @@ func (r *StepRepository) GetByID(id int64) (*models.Step, error) {
 func (r *StepRepository) GetNextActive(afterOrder int) (*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		row := db.QueryRow(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, hint_text, hint_image, created_at
 			FROM steps
 			WHERE is_active = TRUE AND is_deleted = FALSE AND step_order > ?
 			ORDER BY step_order
@@ -285,16 +301,22 @@ func (r *StepRepository) AddAnswer(stepID int64, answer string) error {
 
 func (r *StepRepository) scanStep(row *sql.Row) (*models.Step, error) {
 	var step models.Step
-	var correctImg sql.NullString
+	var correctImg, hintText, hintImage sql.NullString
 	err := row.Scan(
 		&step.ID, &step.StepOrder, &step.Text, &step.AnswerType,
-		&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &correctImg, &step.CreatedAt,
+		&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &correctImg, &hintText, &hintImage, &step.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
 	}
 	if correctImg.Valid {
 		step.CorrectAnswerImage = correctImg.String
+	}
+	if hintText.Valid {
+		step.HintText = hintText.String
+	}
+	if hintImage.Valid {
+		step.HintImage = hintImage.String
 	}
 	return &step, nil
 }
@@ -303,15 +325,21 @@ func (r *StepRepository) scanSteps(db *sql.DB, rows *sql.Rows) ([]*models.Step, 
 	var steps []*models.Step
 	for rows.Next() {
 		var step models.Step
-		var correctImg sql.NullString
+		var correctImg, hintText, hintImage sql.NullString
 		if err := rows.Scan(
 			&step.ID, &step.StepOrder, &step.Text, &step.AnswerType,
-			&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &correctImg, &step.CreatedAt,
+			&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &correctImg, &hintText, &hintImage, &step.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
 		if correctImg.Valid {
 			step.CorrectAnswerImage = correctImg.String
+		}
+		if hintText.Valid {
+			step.HintText = hintText.String
+		}
+		if hintImage.Valid {
+			step.HintImage = hintImage.String
 		}
 		loaded, err := r.loadStepRelations(db, &step)
 		if err != nil {

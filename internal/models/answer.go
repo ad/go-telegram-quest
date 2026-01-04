@@ -8,6 +8,7 @@ type UserAnswer struct {
 	StepID     int64
 	TextAnswer string
 	Images     []AnswerImage
+	HintUsed   bool
 	CreatedAt  time.Time
 }
 

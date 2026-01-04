@@ -70,7 +70,7 @@ func TestProperty1_AnswerTimeBounds(t *testing.T) {
 			answerTime := baseTime.Add(time.Duration(i) * time.Minute * 10)
 			expectedTimes = append(expectedTimes, answerTime)
 
-			answerID, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer")
+			answerID, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer", false)
 			if err != nil {
 				rt.Fatal(err)
 			}
@@ -161,7 +161,7 @@ func TestProperty2_CompletionTimeCalculation(t *testing.T) {
 				lastTime = answerTime
 			}
 
-			answerID, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer")
+			answerID, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer", false)
 			if err != nil {
 				rt.Fatal(err)
 			}
@@ -243,7 +243,7 @@ func TestProperty3_CountAccuracy(t *testing.T) {
 
 		for i := range totalAnswers {
 			stepID := stepIDs[i%len(stepIDs)]
-			_, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer")
+			_, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer", false)
 			if err != nil {
 				rt.Fatal(err)
 			}
@@ -313,7 +313,7 @@ func TestProperty4_AccuracyPercentageCalculation(t *testing.T) {
 		approvedSteps := rapid.IntRange(0, min(totalAnswers, 5)).Draw(rt, "approvedSteps")
 
 		for range totalAnswers {
-			_, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer")
+			_, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer", false)
 			if err != nil {
 				rt.Fatal(err)
 			}
@@ -398,7 +398,7 @@ func TestProperty5_AverageResponseTimeCalculation(t *testing.T) {
 				lastTime = answerTime
 			}
 
-			answerID, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer")
+			answerID, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer", false)
 			if err != nil {
 				rt.Fatal(err)
 			}
@@ -480,7 +480,7 @@ func TestProperty8_StepAttemptsAccuracy(t *testing.T) {
 			expectedAttempts[stepID] = attempts
 
 			for range attempts {
-				_, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer")
+				_, err := answerRepo.CreateTextAnswer(userID, stepID, "test answer", false)
 				if err != nil {
 					rt.Fatal(err)
 				}

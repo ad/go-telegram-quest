@@ -39,6 +39,8 @@ func setupTestDB(t *testing.T) (*db.DBQueue, func()) {
 			is_active BOOLEAN DEFAULT TRUE,
 			is_deleted BOOLEAN DEFAULT FALSE,
 			correct_answer_image TEXT,
+			hint_text TEXT DEFAULT '',
+			hint_image TEXT DEFAULT '',
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)

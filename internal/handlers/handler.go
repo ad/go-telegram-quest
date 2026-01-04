@@ -162,6 +162,11 @@ func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.Call
 		return
 	}
 
+	if strings.HasPrefix(callback.Data, "hint:") {
+		h.handleHintCallback(ctx, callback)
+		return
+	}
+
 	if callback.From.ID != h.adminID {
 		return
 	}
@@ -268,9 +273,23 @@ func (h *BotHandler) sendStep(ctx context.Context, userID int64, step *models.St
 		IsDeleted:    step.IsDeleted,
 		Images:       step.Images,
 		Answers:      step.Answers,
+		HintText:     step.HintText,
+		HintImage:    step.HintImage,
 	}
 
-	h.msgManager.SendTask(ctx, userID, stepWithHint)
+	// Check if hint button should be shown
+	showHintButton := false
+	if step.HasHint() {
+		chatState, err := h.chatStateRepo.Get(userID)
+		if err == nil && chatState != nil {
+			showHintButton = !chatState.CurrentStepHintUsed
+		} else {
+			// If no chat state exists or error, show hint button by default
+			showHintButton = true
+		}
+	}
+
+	h.msgManager.SendTaskWithHintButton(ctx, userID, stepWithHint, showHintButton)
 }
 
 func (h *BotHandler) getProgressText(userID int64) string {
@@ -304,8 +323,21 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 	}
 
 	h.msgManager.SaveUserAnswerMessageID(userID, msg.ID)
+	h.msgManager.CleanupHintMessage(ctx, userID)
 
-	h.answerRepo.CreateTextAnswer(userID, step.ID, msg.Text)
+	// Get current hint usage state
+	chatState, err := h.chatStateRepo.Get(userID)
+	hintUsed := false
+	if err == nil && chatState != nil {
+		hintUsed = chatState.CurrentStepHintUsed
+	}
+
+	h.answerRepo.CreateTextAnswer(userID, step.ID, msg.Text, hintUsed)
+
+	// Reset hint usage after saving answer
+	if hintUsed {
+		h.chatStateRepo.ResetHintUsed(userID)
+	}
 
 	if step.HasAutoCheck && len(step.Answers) > 0 {
 		result, err := h.answerChecker.CheckTextAnswer(step.ID, msg.Text)
@@ -494,13 +526,26 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 	}
 
 	h.msgManager.SaveUserAnswerMessageID(userID, msg.ID)
+	h.msgManager.CleanupHintMessage(ctx, userID)
 
 	var fileID string
 	if len(msg.Photo) > 0 {
 		fileID = msg.Photo[len(msg.Photo)-1].FileID
 	}
 
-	h.answerRepo.CreateImageAnswer(userID, step.ID, []string{fileID})
+	// Get current hint usage state
+	chatState, err := h.chatStateRepo.Get(userID)
+	hintUsed := false
+	if err == nil && chatState != nil {
+		hintUsed = chatState.CurrentStepHintUsed
+	}
+
+	h.answerRepo.CreateImageAnswer(userID, step.ID, []string{fileID}, hintUsed)
+
+	// Reset hint usage after saving answer
+	if hintUsed {
+		h.chatStateRepo.ResetHintUsed(userID)
+	}
 
 	h.progressRepo.Update(&models.UserProgress{
 		UserID: userID,
@@ -705,6 +750,17 @@ func parseInt64(s string) (int64, error) {
 	return result, err
 }
 
+func BuildHintKeyboard(userID int64, stepID int64) *tgmodels.InlineKeyboardMarkup {
+	return &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{
+				Text:         "💡 Подсказка",
+				CallbackData: fmt.Sprintf("hint:%d:%d", userID, stepID),
+			}},
+		},
+	}
+}
+
 func (h *BotHandler) sendToAdminForReview(ctx context.Context, userID int64, step *models.Step, textAnswer string, imageFileIDs []string) {
 	user, _ := h.userRepo.GetByID(userID)
 	displayName := fmt.Sprintf("[%d]", userID)
@@ -813,5 +869,71 @@ func (h *BotHandler) handleNextStepCallback(ctx context.Context, callback *tgmod
 
 	h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 		CallbackQueryID: callback.ID,
+	})
+}
+
+func (h *BotHandler) handleHintCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
+	parts := strings.Split(callback.Data, ":")
+	if len(parts) != 3 {
+		return
+	}
+
+	userID, _ := parseInt64(parts[1])
+	stepID, _ := parseInt64(parts[2])
+
+	if userID == 0 || stepID == 0 {
+		return
+	}
+
+	step, err := h.stepRepo.GetByID(stepID)
+	if err != nil || step == nil || !step.HasHint() {
+		return
+	}
+
+	hintMsgID, err := h.sendHintMessage(ctx, userID, step)
+	if err != nil {
+		return
+	}
+
+	h.chatStateRepo.UpdateHintMessageID(userID, hintMsgID)
+	h.chatStateRepo.SetHintUsed(userID, true)
+
+	h.removeHintButton(ctx, userID, callback.Message.Message.ID)
+
+	h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: callback.ID,
+	})
+}
+
+func (h *BotHandler) sendHintMessage(ctx context.Context, userID int64, step *models.Step) (int, error) {
+	if step.HintImage != "" {
+		msg, err := h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
+			ChatID:  userID,
+			Photo:   &tgmodels.InputFileString{Data: step.HintImage},
+			Caption: step.HintText,
+		})
+		if err != nil {
+			return 0, err
+		}
+
+		return msg.ID, nil
+	}
+
+	msg, err := h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+		ChatID: userID,
+		Text:   step.HintText,
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return msg.ID, nil
+}
+
+func (h *BotHandler) removeHintButton(ctx context.Context, userID int64, messageID int) {
+	h.bot.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
+		ChatID:      userID,
+		MessageID:   messageID,
+		ReplyMarkup: nil,
 	})
 }

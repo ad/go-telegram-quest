@@ -14,12 +14,12 @@ func NewAnswerRepository(queue *DBQueue) *AnswerRepository {
 	return &AnswerRepository{queue: queue}
 }
 
-func (r *AnswerRepository) CreateTextAnswer(userID, stepID int64, textAnswer string) (int64, error) {
+func (r *AnswerRepository) CreateTextAnswer(userID, stepID int64, textAnswer string, hintUsed bool) (int64, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		res, err := db.Exec(`
-			INSERT INTO user_answers (user_id, step_id, text_answer)
-			VALUES (?, ?, ?)
-		`, userID, stepID, textAnswer)
+			INSERT INTO user_answers (user_id, step_id, text_answer, hint_used)
+			VALUES (?, ?, ?, ?)
+		`, userID, stepID, textAnswer, hintUsed)
 		if err != nil {
 			return nil, err
 		}
@@ -31,12 +31,12 @@ func (r *AnswerRepository) CreateTextAnswer(userID, stepID int64, textAnswer str
 	return result.(int64), nil
 }
 
-func (r *AnswerRepository) CreateImageAnswer(userID, stepID int64, fileIDs []string) (int64, error) {
+func (r *AnswerRepository) CreateImageAnswer(userID, stepID int64, fileIDs []string, hintUsed bool) (int64, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		res, err := db.Exec(`
-			INSERT INTO user_answers (user_id, step_id)
-			VALUES (?, ?)
-		`, userID, stepID)
+			INSERT INTO user_answers (user_id, step_id, hint_used)
+			VALUES (?, ?, ?)
+		`, userID, stepID, hintUsed)
 		if err != nil {
 			return nil, err
 		}

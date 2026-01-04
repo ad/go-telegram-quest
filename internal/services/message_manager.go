@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
@@ -75,16 +76,33 @@ func (m *MessageManager) SendMediaGroupWithRetry(ctx context.Context, params *bo
 }
 
 func (m *MessageManager) SendTask(ctx context.Context, userID int64, step *models.Step) error {
+	return m.SendTaskWithHintButton(ctx, userID, step, false)
+}
+
+func (m *MessageManager) SendTaskWithHintButton(ctx context.Context, userID int64, step *models.Step, showHintButton bool) error {
 	if err := m.DeletePreviousMessages(ctx, userID); err != nil {
 		return err
+	}
+
+	var keyboard *tgmodels.InlineKeyboardMarkup
+	if showHintButton && step.HasHint() {
+		keyboard = &tgmodels.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+				{{
+					Text:         "💡 Подсказка",
+					CallbackData: fmt.Sprintf("hint:%d:%d", userID, step.ID),
+				}},
+			},
+		}
 	}
 
 	var taskMsgID int
 
 	if len(step.Images) == 0 {
 		msg, err := m.SendWithRetry(ctx, &bot.SendMessageParams{
-			ChatID: userID,
-			Text:   step.Text,
+			ChatID:      userID,
+			Text:        step.Text,
+			ReplyMarkup: keyboard,
 		})
 		if err != nil {
 			return err
@@ -92,9 +110,10 @@ func (m *MessageManager) SendTask(ctx context.Context, userID int64, step *model
 		taskMsgID = msg.ID
 	} else if len(step.Images) == 1 {
 		msg, err := m.SendPhotoWithRetry(ctx, &bot.SendPhotoParams{
-			ChatID:  userID,
-			Photo:   &tgmodels.InputFileString{Data: step.Images[0].FileID},
-			Caption: step.Text,
+			ChatID:      userID,
+			Photo:       &tgmodels.InputFileString{Data: step.Images[0].FileID},
+			Caption:     step.Text,
+			ReplyMarkup: keyboard,
 		})
 		if err != nil {
 			return err
@@ -120,6 +139,15 @@ func (m *MessageManager) SendTask(ctx context.Context, userID int64, step *model
 		}
 		if len(msgs) > 0 {
 			taskMsgID = msgs[0].ID
+		}
+
+		// Send hint button as separate message for media groups
+		if keyboard != nil {
+			m.SendWithRetry(ctx, &bot.SendMessageParams{
+				ChatID:      userID,
+				Text:        "👆 Ваше задание выше",
+				ReplyMarkup: keyboard,
+			})
 		}
 	}
 
@@ -168,7 +196,20 @@ func (m *MessageManager) DeletePreviousMessages(ctx context.Context, userID int6
 		_ = m.DeleteMessage(ctx, userID, state.LastReactionMessageID)
 	}
 
+	m.CleanupHintMessage(ctx, userID)
+
 	return m.chatStateRepo.Clear(userID)
+}
+
+func (m *MessageManager) CleanupHintMessage(ctx context.Context, userID int64) error {
+	state, err := m.chatStateRepo.Get(userID)
+	if err != nil || state == nil || state.HintMessageID == 0 {
+		return nil
+	}
+
+	_ = m.DeleteMessage(ctx, userID, state.HintMessageID)
+
+	return m.chatStateRepo.UpdateHintMessageID(userID, 0)
 }
 
 func (m *MessageManager) DeleteUserAnswerAndReaction(ctx context.Context, userID int64) error {

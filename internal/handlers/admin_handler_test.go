@@ -3,6 +3,7 @@ package handlers
 import (
 	"testing"
 
+	"github.com/ad/go-telegram-quest/internal/models"
 	tgmodels "github.com/go-telegram/bot/models"
 	"pgregory.net/rapid"
 )
@@ -132,4 +133,38 @@ func TestParseInt64FromMoveCommands(t *testing.T) {
 			t.Errorf("For input %q, expected %d, got %d", test.input, test.expected, result)
 		}
 	}
+}
+func TestProperty6_AdminHintInterfaceLogic(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		stepID := rapid.Int64Range(1, 1000).Draw(rt, "stepID")
+		stepOrder := rapid.IntRange(1, 100).Draw(rt, "stepOrder")
+
+		hintText := rapid.StringOf(rapid.Rune()).Draw(rt, "hintText")
+		hintImage := rapid.StringOf(rapid.Rune()).Draw(rt, "hintImage")
+
+		step := &models.Step{
+			ID:        stepID,
+			StepOrder: stepOrder,
+			HintText:  hintText,
+			HintImage: hintImage,
+		}
+
+		hasHint := step.HasHint()
+		expectedHasHint := (hintText != "" || hintImage != "")
+
+		if hasHint != expectedHasHint {
+			rt.Errorf("HasHint() returned %v, expected %v for hintText='%s', hintImage='%s'",
+				hasHint, expectedHasHint, hintText, hintImage)
+		}
+
+		if hasHint {
+			if hintText == "" && hintImage == "" {
+				rt.Error("Step should not have hint when both text and image are empty")
+			}
+		} else {
+			if hintText != "" || hintImage != "" {
+				rt.Error("Step should have hint when text or image is not empty")
+			}
+		}
+	})
 }

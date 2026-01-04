@@ -13,7 +13,13 @@ type Step struct {
 	CorrectAnswerImage string
 	Images             []StepImage
 	Answers            []string
+	HintText           string
+	HintImage          string
 	CreatedAt          time.Time
+}
+
+func (s *Step) HasHint() bool {
+	return s.HintText != "" || s.HintImage != ""
 }
 
 type StepImage struct {

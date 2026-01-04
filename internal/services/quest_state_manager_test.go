@@ -79,6 +79,7 @@ func setupTestDBForDataPreservation(t *testing.T) (*db.DBQueue, func()) {
 			user_id INTEGER NOT NULL,
 			step_id INTEGER NOT NULL,
 			text_answer TEXT,
+    		hint_used BOOLEAN DEFAULT FALSE,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 
@@ -93,7 +94,9 @@ func setupTestDBForDataPreservation(t *testing.T) (*db.DBQueue, func()) {
 			user_id INTEGER PRIMARY KEY,
 			last_task_message_id INTEGER,
 			last_user_answer_message_id INTEGER,
-			last_reaction_message_id INTEGER
+			last_reaction_message_id INTEGER,
+			hint_message_id INTEGER DEFAULT 0,
+			current_step_hint_used BOOLEAN DEFAULT FALSE
 		);
 
 		CREATE TABLE IF NOT EXISTS step_answers (
@@ -313,7 +316,7 @@ func TestProperty5_DataPreservationDuringStateChanges(t *testing.T) {
 
 		// Create user answer
 		textAnswer := rapid.StringOf(rapid.Rune()).Draw(rt, "textAnswer")
-		answerID, err := answerRepo.CreateTextAnswer(userID, stepID, textAnswer)
+		answerID, err := answerRepo.CreateTextAnswer(userID, stepID, textAnswer, false)
 		if err != nil {
 			rt.Fatalf("Failed to create answer: %v", err)
 		}
