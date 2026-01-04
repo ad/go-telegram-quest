@@ -1428,6 +1428,7 @@ func (h *AdminHandler) startReplaceImage(ctx context.Context, chatID int64, mess
 		UserID:        h.adminID,
 		CurrentState:  fsm.StateAdminReplaceImage,
 		EditingStepID: stepID,
+		ImagePosition: -1,
 	}
 	h.adminStateRepo.Save(state)
 
@@ -1500,7 +1501,7 @@ func (h *AdminHandler) handleAddImage(ctx context.Context, msg *tgmodels.Message
 }
 
 func (h *AdminHandler) handleReplaceImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
-	if state.ImagePosition == 0 {
+	if state.ImagePosition < 0 {
 		var num int
 		if _, err := fmt.Sscanf(msg.Text, "%d", &num); err != nil {
 			h.bot.SendMessage(ctx, &bot.SendMessageParams{
