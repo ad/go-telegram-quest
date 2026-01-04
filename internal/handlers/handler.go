@@ -149,10 +149,10 @@ func (h *BotHandler) sendShadowBanResponse(ctx context.Context, chatID int64) {
 	if settings != nil && settings.WrongAnswerMessage != "" {
 		wrongMsg = settings.WrongAnswerMessage
 	}
-	h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+	h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 		ChatID: chatID,
 		Text:   wrongMsg,
-	})
+	}, "5046589136895476101") // 💩
 }
 
 func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
@@ -210,10 +210,10 @@ func (h *BotHandler) handleStart(ctx context.Context, msg *tgmodels.Message) {
 		if settings != nil && settings.FinalMessage != "" {
 			finalMsg = settings.FinalMessage
 		}
-		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text:   finalMsg,
-		})
+		}, "5046509860389126442") // 🎉
 		return
 	}
 
@@ -322,7 +322,7 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 			if settings != nil && settings.WrongAnswerMessage != "" {
 				wrongMsg = settings.WrongAnswerMessage
 			}
-			h.msgManager.SendReaction(ctx, userID, wrongMsg)
+			h.msgManager.SendReactionWithEffect(ctx, userID, wrongMsg, "5104858069142078462") // 👎
 		}
 	} else {
 		h.progressRepo.Update(&models.UserProgress{
@@ -363,17 +363,18 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 
 	if step.CorrectAnswerImage != "" {
 		h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
-			ChatID:      userID,
-			Photo:       &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
-			Caption:     correctMsg,
-			ReplyMarkup: nextStepBtn,
+			ChatID:          userID,
+			Photo:           &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
+			Caption:         correctMsg,
+			ReplyMarkup:     nextStepBtn,
+			MessageEffectID: "5104841245755180586", // 🔥
 		})
 	} else {
-		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 			ChatID:      userID,
 			Text:        correctMsg,
 			ReplyMarkup: nextStepBtn,
-		})
+		}, "5104841245755180586") // 🔥
 	}
 
 	h.updateStatistics(ctx)
@@ -389,10 +390,10 @@ func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOr
 		}
 
 		h.msgManager.DeletePreviousMessages(ctx, userID)
-		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 			ChatID: userID,
 			Text:   finalMsg,
-		})
+		}, "5046509860389126442") // 🎉
 
 		h.notifyAdminQuestCompleted(ctx, userID)
 		return
@@ -511,7 +512,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 		if settings != nil && settings.WrongAnswerMessage != "" {
 			wrongMsg = settings.WrongAnswerMessage
 		}
-		h.msgManager.SendReaction(ctx, userID, wrongMsg)
+		h.msgManager.SendReactionWithEffect(ctx, userID, wrongMsg, "5104858069142078462") // 👎
 	}
 
 	h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{

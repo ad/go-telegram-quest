@@ -39,6 +39,13 @@ func (m *MessageManager) SendWithRetry(ctx context.Context, params *bot.SendMess
 	return nil, lastErr
 }
 
+func (m *MessageManager) SendWithRetryAndEffect(ctx context.Context, params *bot.SendMessageParams, effectID string) (*tgmodels.Message, error) {
+	if effectID != "" {
+		params.MessageEffectID = effectID
+	}
+	return m.SendWithRetry(ctx, params)
+}
+
 func (m *MessageManager) SendPhotoWithRetry(ctx context.Context, params *bot.SendPhotoParams) (*tgmodels.Message, error) {
 	var lastErr error
 	for attempt := 0; attempt < m.maxRetry; attempt++ {
@@ -120,15 +127,24 @@ func (m *MessageManager) SendTask(ctx context.Context, userID int64, step *model
 }
 
 func (m *MessageManager) SendReaction(ctx context.Context, userID int64, text string) error {
+	return m.SendReactionWithEffect(ctx, userID, text, "")
+}
+
+func (m *MessageManager) SendReactionWithEffect(ctx context.Context, userID int64, text string, effectID string) error {
 	state, _ := m.chatStateRepo.Get(userID)
 	if state != nil && state.LastReactionMessageID != 0 {
 		_ = m.DeleteMessage(ctx, userID, state.LastReactionMessageID)
 	}
 
-	msg, err := m.SendWithRetry(ctx, &bot.SendMessageParams{
+	params := &bot.SendMessageParams{
 		ChatID: userID,
 		Text:   text,
-	})
+	}
+	if effectID != "" {
+		params.MessageEffectID = effectID
+	}
+
+	msg, err := m.SendWithRetry(ctx, params)
 	if err != nil {
 		return err
 	}
