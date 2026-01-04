@@ -316,6 +316,7 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 		if result.IsCorrect {
 			h.handleCorrectAnswer(ctx, userID, step, result.Percentage)
 		} else {
+			h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
 			settings, _ := h.settingsRepo.GetAll()
 			wrongMsg := "❌ Неверно, попробуйте ещё раз"
 			if settings != nil && settings.WrongAnswerMessage != "" {
@@ -504,6 +505,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 
 		h.editCallbackMessage(ctx, callback, fmt.Sprintf("❌ Отклонено\n👤 %s\n📋 Шаг %d", displayName, step.StepOrder))
 
+		h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
 		settings, _ := h.settingsRepo.GetAll()
 		wrongMsg := "❌ Неверно, попробуйте ещё раз"
 		if settings != nil && settings.WrongAnswerMessage != "" {
