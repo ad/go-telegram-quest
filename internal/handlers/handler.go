@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"strings"
 
 	"github.com/ad/go-telegram-quest/internal/db"
@@ -322,7 +323,32 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 			if settings != nil && settings.WrongAnswerMessage != "" {
 				wrongMsg = settings.WrongAnswerMessage
 			}
-			h.msgManager.SendReactionWithEffect(ctx, userID, wrongMsg, "5104858069142078462") // 👎
+
+			wrongEffects := []string{
+				"5104858069142078462", // 👎
+				// "5170149264327704981", // 🤬
+				"5046551865169281494", // 😢
+				// "5125503964049048317", // 🤮
+				"4988134357119009237", // 🥱
+				"4927250902185673331", // 🥴
+				"5122846324185629167", // 🤨
+				"5066978240002786236", // 😐
+				// "4961092903720977544", // 🖕
+				// "4960944078809203417", // 😈
+				// "4925068178331010095", // 😡
+				"4913510691920413388", // 😨
+				"5089524022283076814", // 😫
+				"5089594618660520655", // 😵‍💫
+				// "5026331292283700185", // 🤑
+				// "5071299733016806207", // 🤒
+				// "5086991627960976320", // 🤕
+				// "5066635132245378011", // 🤥
+				"5091342528616072685", // 🤦‍♂
+				// "5120948558526153760", // 🥵
+				// "5026486074315113392", // 🥶
+			}
+			effectID := wrongEffects[rand.Intn(len(wrongEffects))]
+			h.msgManager.SendReactionWithEffect(ctx, userID, wrongMsg, effectID)
 		}
 	} else {
 		h.progressRepo.Update(&models.UserProgress{
@@ -361,20 +387,49 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		},
 	}
 
+	correctEffects := []string{
+		"5107584321108051014", // 👍
+		// "5159385139981059251", // ❤
+		"5104841245755180586", // 🔥
+		// "5046509860389126442", // 🎉
+		// "5170169077011841524", // 🥰
+		"5170166362592510656", // 👏
+		"5048771083361059460", // 😁
+		// "5161554034041029689", // 🤩
+		"5066712811023894584", // 🙏
+		"5066947642655769508", // 👌
+		"4962976753686414048", // 💯
+		// "5066993302453093673", // 🤣
+		// "5123046001510188023", // 🏆
+		// "4913625371842183765", // 🙈
+		// "4913435779100836551", // 😇
+		"5087137729863484424", // ✅
+		"5067074180982244082", // ✌
+		"5089460564141278042", // ✨
+		// "5134366251107222485", // 🎂
+		"5044101728060834560", // 🎆
+		"5046284769743077765", // 🎈
+		"5041819580008236993", // 🎊
+		"4965357582907606094", // 😊
+		// "5089343350188802996", // 🥳
+		// "4967721189309940952", // 🫶
+	}
+	effectID := correctEffects[rand.Intn(len(correctEffects))]
+
 	if step.CorrectAnswerImage != "" {
 		h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID:          userID,
 			Photo:           &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
 			Caption:         correctMsg,
 			ReplyMarkup:     nextStepBtn,
-			MessageEffectID: "5104841245755180586", // 🔥
+			MessageEffectID: effectID,
 		})
 	} else {
 		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 			ChatID:      userID,
 			Text:        correctMsg,
 			ReplyMarkup: nextStepBtn,
-		}, "5104841245755180586") // 🔥
+		}, effectID)
 	}
 
 	h.updateStatistics(ctx)
@@ -512,7 +567,32 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 		if settings != nil && settings.WrongAnswerMessage != "" {
 			wrongMsg = settings.WrongAnswerMessage
 		}
-		h.msgManager.SendReactionWithEffect(ctx, userID, wrongMsg, "5104858069142078462") // 👎
+
+		wrongEffects := []string{
+			"5104858069142078462", // 👎
+			// "5170149264327704981", // 🤬
+			"5046551865169281494", // 😢
+			// "5125503964049048317", // 🤮
+			"4988134357119009237", // 🥱
+			"4927250902185673331", // 🥴
+			"5122846324185629167", // 🤨
+			"5066978240002786236", // 😐
+			// "4961092903720977544", // 🖕
+			// "4960944078809203417", // 😈
+			// "4925068178331010095", // 😡
+			"4913510691920413388", // 😨
+			"5089524022283076814", // 😫
+			"5089594618660520655", // 😵‍💫
+			// "5026331292283700185", // 🤑
+			// "5071299733016806207", // 🤒
+			// "5086991627960976320", // 🤕
+			// "5066635132245378011", // 🤥
+			"5091342528616072685", // 🤦‍♂
+			// "5120948558526153760", // 🥵
+			// "5026486074315113392", // 🥶
+		}
+		effectID := wrongEffects[rand.Intn(len(wrongEffects))]
+		h.msgManager.SendReactionWithEffect(ctx, userID, wrongMsg, effectID)
 	}
 
 	h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
