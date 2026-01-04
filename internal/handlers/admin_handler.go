@@ -103,6 +103,8 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.showSettingsMenu(ctx, chatID, messageID)
 	case data == "admin:quest_state":
 		h.showQuestStateMenu(ctx, chatID, messageID)
+	case data == "admin:export_steps":
+		h.exportSteps(ctx, chatID, messageID)
 	case strings.HasPrefix(data, "admin:quest_state:"):
 		h.handleQuestStateChange(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:move_up:"):
@@ -223,6 +225,7 @@ func (h *AdminHandler) showAdminMenu(ctx context.Context, chatID int64, messageI
 		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
 			{{Text: "➕ Добавить шаг", CallbackData: "admin:add_step"}},
 			{{Text: "📋 Список шагов", CallbackData: "admin:list_steps"}},
+			{{Text: "📤 Экспорт шагов", CallbackData: "admin:export_steps"}},
 			{{Text: "👥 Участники", CallbackData: "admin:users"}},
 			{{Text: "⚙️ Настройки", CallbackData: "admin:settings"}},
 		},
@@ -1830,4 +1833,98 @@ func (h *AdminHandler) skipHintImage(ctx context.Context, chatID int64, messageI
 
 	h.editOrSend(ctx, chatID, messageID, "✅ Подсказка добавлена", nil)
 	h.showHintMenu(ctx, chatID, 0, fmt.Sprintf("admin:hint:%d", state.EditingStepID))
+}
+
+func (h *AdminHandler) exportSteps(ctx context.Context, chatID int64, messageID int) {
+	steps, err := h.stepRepo.GetAll()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при получении заданий", nil)
+		return
+	}
+
+	if len(steps) == 0 {
+		keyboard := &tgmodels.InlineKeyboardMarkup{
+			InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+				{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
+			},
+		}
+		h.editOrSend(ctx, chatID, messageID, "📋 Заданий пока нет", keyboard)
+		return
+	}
+
+	activeCount := 0
+	for _, step := range steps {
+		if step.IsActive {
+			activeCount++
+		}
+	}
+
+	const maxMessageLength = 4000
+	var currentMessage strings.Builder
+
+	for i, step := range steps {
+		stepText := h.formatStepForExport(step)
+
+		if currentMessage.Len()+len(stepText) > maxMessageLength && currentMessage.Len() > 0 {
+			h.bot.SendMessage(ctx, &bot.SendMessageParams{
+				ChatID: chatID,
+				Text:   currentMessage.String(),
+			})
+			currentMessage.Reset()
+		}
+
+		currentMessage.WriteString(stepText)
+
+		if i < len(steps)-1 {
+			currentMessage.WriteString("\n")
+		}
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
+		},
+	}
+
+	if currentMessage.Len() > 0 {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:      chatID,
+			Text:        currentMessage.String(),
+			ReplyMarkup: keyboard,
+		})
+	} else {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:      chatID,
+			Text:        "✅ Экспорт завершен",
+			ReplyMarkup: keyboard,
+		})
+	}
+}
+
+func (h *AdminHandler) formatStepForExport(step *models.Step) string {
+	var stepData strings.Builder
+
+	stepData.WriteString(fmt.Sprintf("🔢 ЗАДАНИЕ %d\n", step.StepOrder))
+	stepData.WriteString(strings.Repeat("-", 20) + "\n")
+	stepData.WriteString(step.Text + "\n\n")
+
+	if len(step.Answers) > 0 {
+		stepData.WriteString("✅ ОТВЕТЫ:\n")
+		for i, answer := range step.Answers {
+			stepData.WriteString(fmt.Sprintf("   %d. %s\n", i+1, answer))
+		}
+		stepData.WriteString("\n")
+	}
+
+	if step.HasHint() {
+		stepData.WriteString("💡 ПОДСКАЗКА:\n")
+		if step.HintText != "" {
+			stepData.WriteString("📝 Текст: " + step.HintText + "\n")
+		}
+		stepData.WriteString("\n")
+	}
+
+	stepData.WriteString("\n")
+
+	return stepData.String()
 }
