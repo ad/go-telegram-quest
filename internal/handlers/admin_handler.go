@@ -1903,24 +1903,22 @@ func (h *AdminHandler) exportSteps(ctx context.Context, chatID int64, messageID 
 
 func (h *AdminHandler) formatStepForExport(step *models.Step) string {
 	var stepData strings.Builder
-	stepData.WriteString(step.Text + "\n\n")
+	stepData.WriteString(step.Text + "\n")
 
 	if len(step.Answers) > 0 {
-		stepData.WriteString("Варианты ответов:\n")
+		stepData.WriteString("Ответы:\n")
 		for i, answer := range step.Answers {
 			stepData.WriteString(fmt.Sprintf("   %d. %s\n", i+1, answer))
 		}
-		stepData.WriteString("\n")
 	}
 
 	if step.HasHint() {
-		stepData.WriteString("Подсказка:\n")
+		stepData.WriteString("Подсказка: ")
 		if step.HintText != "" {
 			stepData.WriteString(step.HintText + "\n")
 		} else {
-			stepData.WriteString("Изображение\n")
+			stepData.WriteString("изображение\n")
 		}
-		stepData.WriteString("\n")
 	}
 
 	return stepData.String()
