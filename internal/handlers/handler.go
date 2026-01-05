@@ -581,11 +581,11 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 		return
 	}
 
-	user, _ := h.userRepo.GetByID(userID)
-	displayName := fmt.Sprintf("[%d]", userID)
-	if user != nil {
-		displayName = user.DisplayName()
-	}
+	// user, _ := h.userRepo.GetByID(userID)
+	// displayName := fmt.Sprintf("[%d]", userID)
+	// if user != nil {
+	// 	displayName = user.DisplayName()
+	// }
 
 	switch action {
 	case "approve":
@@ -594,7 +594,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 			return
 		}
 
-		h.editCallbackMessage(ctx, callback, fmt.Sprintf("✅ Одобрено\n👤 %s\n📋 Шаг %d", displayName, step.StepOrder))
+		h.editCallbackMessage(ctx, callback, "✅ Ответ одобрен")
 
 		percentage, _ := h.answerChecker.CheckTextAnswer(stepID, "")
 		h.handleCorrectAnswer(ctx, userID, step, percentage.Percentage)
@@ -604,7 +604,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 			return
 		}
 
-		h.editCallbackMessage(ctx, callback, fmt.Sprintf("❌ Отклонено\n👤 %s\n📋 Шаг %d", displayName, step.StepOrder))
+		h.editCallbackMessage(ctx, callback, "❌ Ответ отклонён")
 
 		h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
 		settings, _ := h.settingsRepo.GetAll()
