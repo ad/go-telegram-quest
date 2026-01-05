@@ -181,6 +181,23 @@ func (r *AnswerRepository) CountUserAnswersByStep(userID int64) (map[int64]int, 
 	return result.(map[int64]int), nil
 }
 
+func (r *AnswerRepository) GetUserAnswer(userID, stepID int64) (string, error) {
+	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var textAnswer string
+		err := db.QueryRow(`
+			SELECT text_answer FROM user_answers 
+			WHERE user_id = ? AND step_id = ? 
+			ORDER BY created_at DESC 
+			LIMIT 1
+		`, userID, stepID).Scan(&textAnswer)
+		return textAnswer, err
+	})
+	if err != nil {
+		return "", err
+	}
+	return result.(string), nil
+}
+
 func (r *AnswerRepository) DeleteUserAnswers(userID int64) error {
 	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		_, err := db.Exec(`

@@ -588,7 +588,7 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 	})
 
 	h.sendToAdminForReview(ctx, userID, step, "", []string{fileID})
-	h.msgManager.SendReaction(ctx, userID, "⏳ Ваше фото отправлено на проверку")
+	h.msgManager.SendReaction(ctx, userID, "⏳ Ваше фото отправлено на проверку, подождите пока его проверят.")
 
 	h.evaluateAchievementsOnPhotoSubmitted(ctx, userID, false)
 }
@@ -632,8 +632,9 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 
 		h.editCallbackMessage(ctx, callback, "✅ Ответ одобрен")
 
-		percentage, _ := h.answerChecker.CheckTextAnswer(stepID, "")
-		h.handleCorrectAnswer(ctx, userID, step, percentage.Percentage, "")
+		userAnswer, _ := h.answerRepo.GetUserAnswer(userID, stepID)
+		percentage, _ := h.answerChecker.CheckTextAnswer(stepID, userAnswer)
+		h.handleCorrectAnswer(ctx, userID, step, percentage.Percentage, userAnswer)
 	case "reject":
 		progress.Status = models.StatusRejected
 		if err := h.progressRepo.Update(progress); err != nil {
