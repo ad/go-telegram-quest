@@ -57,7 +57,7 @@ func NewBotHandler(
 	achievementNotifier *services.AchievementNotifier,
 	achievementService *services.AchievementService,
 ) *BotHandler {
-	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo, questStateManager, achievementService)
+	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo, questStateManager, achievementService, achievementEngine)
 	questStateMiddleware := services.NewQuestStateMiddleware(questStateManager, adminID)
 
 	return &BotHandler{

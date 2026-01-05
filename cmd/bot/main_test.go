@@ -191,6 +191,7 @@ func TestAdminHandlerIntegration(t *testing.T) {
 	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
 	questStateManager := services.NewQuestStateManager(settingsRepo)
 	achievementService := services.NewAchievementService(achievementRepo, userRepo)
+	achievementEngine := services.NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, dbQueue)
 
 	adminHandler := handlers.NewAdminHandler(
 		nil,
@@ -203,6 +204,7 @@ func TestAdminHandlerIntegration(t *testing.T) {
 		userRepo,
 		questStateManager,
 		achievementService,
+		achievementEngine,
 	)
 
 	if adminHandler == nil {

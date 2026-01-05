@@ -153,6 +153,14 @@ func (r *AchievementRepository) AssignToUser(userID, achievementID int64, earned
 	return err
 }
 
+func (r *AchievementRepository) RemoveUserAchievement(userID, achievementID int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`DELETE FROM user_achievements WHERE user_id = ? AND achievement_id = ?`, userID, achievementID)
+		return nil, err
+	})
+	return err
+}
+
 func (r *AchievementRepository) GetUserAchievements(userID int64) ([]*models.UserAchievement, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		rows, err := db.Query(`

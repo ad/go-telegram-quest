@@ -1948,3 +1948,64 @@ func (e *AchievementEngine) EvaluateRetroactiveCompositeAchievements(achievement
 
 	return awardedUsers, nil
 }
+
+func (e *AchievementEngine) RecalculatePositionAchievements() (map[string]int64, error) {
+	e.uniqueMutex.Lock()
+	defer e.uniqueMutex.Unlock()
+
+	positionAchievements := []string{
+		"pioneer", "second_place", "third_place", "fourth_place", "fifth_place",
+		"sixth_place", "seventh_place", "eighth_place", "ninth_place", "tenth_place",
+	}
+
+	usersWithFirstAnswer, err := e.getUsersOrderedByFirstCorrectAnswer()
+	if err != nil {
+		return nil, err
+	}
+
+	awarded := make(map[string]int64)
+
+	for i, key := range positionAchievements {
+		achievement, err := e.achievementRepo.GetByKey(key)
+		if err != nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Position achievement %s not found: %v", key, err)
+			continue
+		}
+
+		holders, err := e.achievementRepo.GetAchievementHolders(key)
+		if err != nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Error getting holders for %s: %v", key, err)
+			continue
+		}
+
+		position := i + 1
+		if position > len(usersWithFirstAnswer) {
+			continue
+		}
+
+		correctUserID := usersWithFirstAnswer[position-1].UserID
+		earnedAt := usersWithFirstAnswer[position-1].FirstCorrectAnswerTime
+
+		if len(holders) > 0 && holders[0] == correctUserID {
+			continue
+		}
+
+		if len(holders) > 0 {
+			for _, holderID := range holders {
+				e.achievementRepo.RemoveUserAchievement(holderID, achievement.ID)
+				log.Printf("[ACHIEVEMENT_ENGINE] Removed position achievement %s from user %d", key, holderID)
+			}
+		}
+
+		err = e.achievementRepo.AssignToUser(correctUserID, achievement.ID, earnedAt, true)
+		if err != nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Error assigning position achievement %s to user %d: %v", key, correctUserID, err)
+			continue
+		}
+
+		awarded[key] = correctUserID
+		log.Printf("[ACHIEVEMENT_ENGINE] Reassigned position achievement %s to user %d", key, correctUserID)
+	}
+
+	return awarded, nil
+}

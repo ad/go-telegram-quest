@@ -25,6 +25,7 @@ type AdminHandler struct {
 	userRepo           *db.UserRepository
 	questStateManager  *services.QuestStateManager
 	achievementService *services.AchievementService
+	achievementEngine  *services.AchievementEngine
 }
 
 func NewAdminHandler(
@@ -38,6 +39,7 @@ func NewAdminHandler(
 	userRepo *db.UserRepository,
 	questStateManager *services.QuestStateManager,
 	achievementService *services.AchievementService,
+	achievementEngine *services.AchievementEngine,
 ) *AdminHandler {
 	return &AdminHandler{
 		bot:                b,
@@ -50,6 +52,7 @@ func NewAdminHandler(
 		userRepo:           userRepo,
 		questStateManager:  questStateManager,
 		achievementService: achievementService,
+		achievementEngine:  achievementEngine,
 	}
 }
 
@@ -1307,7 +1310,18 @@ func (h *AdminHandler) handleResetFromDetails(ctx context.Context, chatID int64,
 		return
 	}
 
-	h.editOrSend(ctx, chatID, messageID, "✅ Прогресс пользователя сброшен", nil)
+	if err := h.achievementService.ResetUserAchievements(userID); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при сбросе достижений", nil)
+		return
+	}
+
+	if h.achievementEngine != nil {
+		if _, err := h.achievementEngine.RecalculatePositionAchievements(); err != nil {
+			log.Printf("[ADMIN] Error recalculating position achievements: %v", err)
+		}
+	}
+
+	h.editOrSend(ctx, chatID, messageID, "✅ Прогресс и достижения пользователя сброшены", nil)
 	h.showUserDetails(ctx, chatID, 0, fmt.Sprintf("user:%d", userID))
 }
 

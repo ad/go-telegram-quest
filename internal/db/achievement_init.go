@@ -33,9 +33,9 @@ func InitializeDefaultAchievements(db *sql.DB) error {
 				log.Printf("Failed to create achievement %s: %v", achievement.Key, err)
 				return err
 			}
-			log.Printf("Created achievement: %s", achievement.Key)
+			// log.Printf("Created achievement: %s", achievement.Key)
 		} else {
-			log.Printf("Achievement %s already exists, skipping", achievement.Key)
+			// log.Printf("Achievement %s already exists, skipping", achievement.Key)
 		}
 	}
 
@@ -180,7 +180,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "beginner_5",
 		Name:        "Начинающий",
-		Description: "Дал 5 правильных ответов",
+		Description: "Дать 5 правильных ответов",
 		Category:    models.CategoryProgress,
 		Type:        models.TypeProgressBased,
 		IsUnique:    false,
@@ -193,7 +193,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "experienced_10",
 		Name:        "Опытный",
-		Description: "Дал 10 правильных ответов",
+		Description: "Дать 10 правильных ответов",
 		Category:    models.CategoryProgress,
 		Type:        models.TypeProgressBased,
 		IsUnique:    false,
@@ -206,7 +206,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "advanced_15",
 		Name:        "Продвинутый",
-		Description: "Дал 15 правильных ответов",
+		Description: "Дать 15 правильных ответов",
 		Category:    models.CategoryProgress,
 		Type:        models.TypeProgressBased,
 		IsUnique:    false,
@@ -219,7 +219,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "expert_20",
 		Name:        "Эксперт",
-		Description: "Дал 20 правильных ответов",
+		Description: "Дать 20 правильных ответов",
 		Category:    models.CategoryProgress,
 		Type:        models.TypeProgressBased,
 		IsUnique:    false,
@@ -232,7 +232,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "master_25",
 		Name:        "Мастер",
-		Description: "Дал 25 правильных ответов",
+		Description: "Дать 25 правильных ответов",
 		Category:    models.CategoryProgress,
 		Type:        models.TypeProgressBased,
 		IsUnique:    false,
@@ -246,7 +246,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "winner",
 		Name:        "Победитель",
-		Description: "Завершил весь квест",
+		Description: "Завершить весь квест",
 		Category:    models.CategoryCompletion,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -259,7 +259,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "perfect_path",
 		Name:        "Идеальный Путь",
-		Description: "Завершил квест без единой ошибки",
+		Description: "Завершить квест без единой ошибки",
 		Category:    models.CategoryCompletion,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -273,7 +273,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "self_sufficient",
 		Name:        "Самодостаточный",
-		Description: "Завершил квест без использования подсказок",
+		Description: "Завершить квест без использования подсказок",
 		Category:    models.CategoryCompletion,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -287,7 +287,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "lightning",
 		Name:        "Молния",
-		Description: "Завершил квест менее чем за 10 минут",
+		Description: "Завершить квест менее чем за 10 минут",
 		Category:    models.CategoryCompletion,
 		Type:        models.TypeTimeBased,
 		IsUnique:    false,
@@ -301,7 +301,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "rocket",
 		Name:        "Ракета",
-		Description: "Завершил квест менее чем за 60 минут",
+		Description: "Завершить квест менее чем за 60 минут",
 		Category:    models.CategoryCompletion,
 		Type:        models.TypeTimeBased,
 		IsUnique:    false,
@@ -315,7 +315,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "cheater",
 		Name:        "Жулик",
-		Description: "Завершил квест менее чем за 5 минут",
+		Description: "Завершить квест менее чем за 5 минут",
 		Category:    models.CategoryCompletion,
 		Type:        models.TypeTimeBased,
 		IsUnique:    false,
@@ -330,7 +330,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "hint_5",
 		Name:        "Подсказочный 5",
-		Description: "Использовал ровно одну подсказку и дал 5 правильных ответов",
+		Description: "Использовать ровно одну подсказку и дать 5 правильных ответов",
 		Category:    models.CategoryHints,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -344,7 +344,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "hint_10",
 		Name:        "Подсказочный 10",
-		Description: "Использовал ровно одну подсказку и дал 10 правильных ответов",
+		Description: "Использовать ровно одну подсказку и дать 10 правильных ответов",
 		Category:    models.CategoryHints,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -358,7 +358,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "hint_15",
 		Name:        "Подсказочный 15",
-		Description: "Использовал ровно одну подсказку и дал 15 правильных ответов",
+		Description: "Использовать ровно одну подсказку и дать 15 правильных ответов",
 		Category:    models.CategoryHints,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -372,7 +372,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "hint_25",
 		Name:        "Подсказочный 25",
-		Description: "Использовал ровно одну подсказку и дал 25 правильных ответов",
+		Description: "Использовать ровно одну подсказку и дать 25 правильных ответов",
 		Category:    models.CategoryHints,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -386,7 +386,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "hint_master",
 		Name:        "Мастер Подсказок",
-		Description: "Использовал все доступные подсказки в квесте",
+		Description: "Использовать все доступные подсказки в квесте",
 		Category:    models.CategoryHints,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -399,7 +399,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "skeptic",
 		Name:        "Скептик",
-		Description: "Использовал подсказку на первом задании",
+		Description: "Использовать подсказку на первом задании",
 		Category:    models.CategoryHints,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -413,7 +413,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "photographer",
 		Name:        "Фотограф",
-		Description: "Отправил фото для фото-задания",
+		Description: "Отправить фото для фото-задания",
 		Category:    models.CategorySpecial,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -426,7 +426,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "bullseye",
 		Name:        "В точку",
-		Description: "Ответил правильно на 10 заданий подряд с первой попытки",
+		Description: "Ответить правильно на 10 заданий подряд с первой попытки",
 		Category:    models.CategorySpecial,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -439,7 +439,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "secret_agent",
 		Name:        "Секретный Агент",
-		Description: "Ответил 'сезам откройся' на любое задание",
+		Description: "Ответить 'сезам откройся' на любое задание",
 		Category:    models.CategorySpecial,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -452,7 +452,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "curious",
 		Name:        "Любопытный",
-		Description: "Зашёл в квест, но не отвечал на вопросы 24 часа",
+		Description: "Зайти в квест, но не отвечать на вопросы 24 часа",
 		Category:    models.CategorySpecial,
 		Type:        models.TypeTimeBased,
 		IsUnique:    false,
@@ -465,7 +465,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "paparazzi",
 		Name:        "Папарацци",
-		Description: "Отправил фото для текстового задания",
+		Description: "Отправить фото для текстового задания",
 		Category:    models.CategorySpecial,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -478,7 +478,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "fan",
 		Name:        "Фанат",
-		Description: "Отправил сообщение после завершения всего квеста",
+		Description: "Отправить сообщение после завершения всего квеста",
 		Category:    models.CategorySpecial,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
@@ -505,7 +505,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "super_brain",
 		Name:        "Супермозг",
-		Description: "Завершил квест без ошибок, подсказок и менее чем за 30 минут",
+		Description: "Завершить квест без ошибок, подсказок и менее чем за 30 минут",
 		Category:    models.CategoryComposite,
 		Type:        models.TypeComposite,
 		IsUnique:    false,
@@ -521,7 +521,7 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "legend",
 		Name:        "Легенда",
-		Description: "Собрал достижения первых 10 участников, все прогрессивные и все за завершение",
+		Description: "Собрать достижения первых 10 участников, все прогрессивные и все за завершение",
 		Category:    models.CategoryComposite,
 		Type:        models.TypeComposite,
 		IsUnique:    false,

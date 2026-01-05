@@ -206,3 +206,7 @@ func (s *AchievementService) HasUserAchievement(userID int64, achievementKey str
 func (s *AchievementService) GetAchievementHolders(achievementKey string) ([]int64, error) {
 	return s.achievementRepo.GetAchievementHolders(achievementKey)
 }
+
+func (s *AchievementService) ResetUserAchievements(userID int64) error {
+	return s.achievementRepo.DeleteUserAchievements(userID)
+}
