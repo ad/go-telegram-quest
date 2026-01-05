@@ -429,7 +429,6 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 }
 
 func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step *models.Step, percentage int, textAnswer string) {
-	// Удаляем предыдущие сообщения пользователя и реакции (включая сообщения о неверных ответах)
 	h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
 
 	h.progressRepo.Update(&models.UserProgress{
@@ -448,40 +447,47 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		correctMsg = fmt.Sprintf("%s\n\n📊 До этого шага дошли %d%% участников", correctMsg, percentage)
 	}
 
+	correctEffects := []string{
+		"5107584321108051014", // 👍
+		"5104841245755180586", // 🔥
+	}
+	effectID := correctEffects[rand.Intn(len(correctEffects))]
+
+	nextStep, _ := h.stepRepo.GetNextActive(step.StepOrder)
+	isLastStep := nextStep == nil
+
+	if isLastStep {
+		finalMsg := "🎉 Поздравляем! Вы прошли квест!"
+		if settings != nil && settings.FinalMessage != "" {
+			finalMsg = settings.FinalMessage
+		}
+		correctMsg = correctMsg + "\n\n" + finalMsg
+
+		if step.CorrectAnswerImage != "" {
+			h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
+				ChatID:          userID,
+				Photo:           &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
+				Caption:         correctMsg,
+				MessageEffectID: "5046509860389126442", // 🎉
+			})
+		} else {
+			h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
+				ChatID: userID,
+				Text:   correctMsg,
+			}, "5046509860389126442") // 🎉
+		}
+
+		h.notifyAdminQuestCompleted(ctx, userID)
+		h.updateStatistics(ctx)
+		h.evaluateAchievementsOnQuestCompleted(ctx, userID)
+		return
+	}
+
 	nextStepBtn := tgmodels.InlineKeyboardMarkup{
 		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
 			{{Text: "Следующий вопрос ➡️", CallbackData: fmt.Sprintf("next_step:%d", step.StepOrder)}},
 		},
 	}
-
-	correctEffects := []string{
-		"5107584321108051014", // 👍
-		// "5159385139981059251", // ❤
-		"5104841245755180586", // 🔥
-		// "5046509860389126442", // 🎉
-		// "5170169077011841524", // 🥰
-		// "5170166362592510656", // 👏
-		// "5048771083361059460", // 😁
-		// "5161554034041029689", // 🤩
-		// "5066712811023894584", // 🙏
-		// "5066947642655769508", // 👌
-		// "4962976753686414048", // 💯
-		// "5066993302453093673", // 🤣
-		// "5123046001510188023", // 🏆
-		// "4913625371842183765", // 🙈
-		// "4913435779100836551", // 😇
-		// "5087137729863484424", // ✅
-		// "5067074180982244082", // ✌
-		// "5089460564141278042", // ✨
-		// "5134366251107222485", // 🎂
-		// "5044101728060834560", // 🎆
-		// "5046284769743077765", // 🎈
-		// "5041819580008236993", // 🎊
-		// "4965357582907606094", // 😊
-		// "5089343350188802996", // 🥳
-		// "4967721189309940952", // 🫶
-	}
-	effectID := correctEffects[rand.Intn(len(correctEffects))]
 
 	if step.CorrectAnswerImage != "" {
 		h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
@@ -500,7 +506,6 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	}
 
 	h.updateStatistics(ctx)
-
 	h.evaluateAchievementsOnCorrectAnswer(ctx, userID)
 }
 
