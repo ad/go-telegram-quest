@@ -409,11 +409,20 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 			h.msgManager.SendReactionWithEffect(ctx, userID, wrongMsg, effectID)
 		}
 	} else {
-		h.progressRepo.Update(&models.UserProgress{
-			UserID: userID,
-			StepID: step.ID,
-			Status: models.StatusWaitingReview,
-		})
+		progress, _ := h.progressRepo.GetByUserAndStep(userID, step.ID)
+		if progress == nil {
+			h.progressRepo.Create(&models.UserProgress{
+				UserID: userID,
+				StepID: step.ID,
+				Status: models.StatusWaitingReview,
+			})
+		} else {
+			h.progressRepo.Update(&models.UserProgress{
+				UserID: userID,
+				StepID: step.ID,
+				Status: models.StatusWaitingReview,
+			})
+		}
 		h.sendToAdminForReview(ctx, userID, step, msg.Text, nil)
 		h.msgManager.SendReaction(ctx, userID, "⏳ Ваш ответ отправлен на проверку")
 	}
@@ -588,11 +597,20 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 		h.chatStateRepo.ResetHintUsed(userID)
 	}
 
-	h.progressRepo.Update(&models.UserProgress{
-		UserID: userID,
-		StepID: step.ID,
-		Status: models.StatusWaitingReview,
-	})
+	progress, _ := h.progressRepo.GetByUserAndStep(userID, step.ID)
+	if progress == nil {
+		h.progressRepo.Create(&models.UserProgress{
+			UserID: userID,
+			StepID: step.ID,
+			Status: models.StatusWaitingReview,
+		})
+	} else {
+		h.progressRepo.Update(&models.UserProgress{
+			UserID: userID,
+			StepID: step.ID,
+			Status: models.StatusWaitingReview,
+		})
+	}
 
 	h.sendToAdminForReview(ctx, userID, step, "", []string{fileID})
 	h.msgManager.SendReaction(ctx, userID, "⏳ Ваше фото отправлено на проверку, подождите пока его проверят.")
