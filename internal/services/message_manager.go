@@ -99,22 +99,28 @@ func (m *MessageManager) SendTaskWithHintButton(ctx context.Context, userID int6
 	var taskMsgID int
 
 	if len(step.Images) == 0 {
-		msg, err := m.SendWithRetry(ctx, &bot.SendMessageParams{
-			ChatID:      userID,
-			Text:        step.Text,
-			ReplyMarkup: keyboard,
-		})
+		params := &bot.SendMessageParams{
+			ChatID: userID,
+			Text:   step.Text,
+		}
+		if keyboard != nil {
+			params.ReplyMarkup = keyboard
+		}
+		msg, err := m.SendWithRetry(ctx, params)
 		if err != nil {
 			return err
 		}
 		taskMsgID = msg.ID
 	} else if len(step.Images) == 1 {
-		msg, err := m.SendPhotoWithRetry(ctx, &bot.SendPhotoParams{
-			ChatID:      userID,
-			Photo:       &tgmodels.InputFileString{Data: step.Images[0].FileID},
-			Caption:     step.Text,
-			ReplyMarkup: keyboard,
-		})
+		params := &bot.SendPhotoParams{
+			ChatID:  userID,
+			Photo:   &tgmodels.InputFileString{Data: step.Images[0].FileID},
+			Caption: step.Text,
+		}
+		if keyboard != nil {
+			params.ReplyMarkup = keyboard
+		}
+		msg, err := m.SendPhotoWithRetry(ctx, params)
 		if err != nil {
 			return err
 		}
