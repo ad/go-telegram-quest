@@ -1,6 +1,7 @@
 package services
 
 import (
+	"log"
 	"strings"
 
 	"github.com/ad/go-telegram-quest/internal/db"
@@ -33,6 +34,7 @@ func (c *AnswerChecker) CheckTextAnswer(stepID int64, answer string) (*CheckResu
 	}
 
 	normalizedAnswer := strings.ToLower(strings.TrimSpace(answer))
+	log.Printf("[ANSWER_CHECKER] stepID=%d answer='%s' normalized='%s' variants=%v", stepID, answer, normalizedAnswer, variants)
 
 	isCorrect := false
 	for _, variant := range variants {
@@ -54,6 +56,7 @@ func (c *AnswerChecker) CheckTextAnswer(stepID int64, answer string) (*CheckResu
 		result.Percentage = percentage
 	}
 
+	log.Printf("[ANSWER_CHECKER] isCorrect=%t percentage=%d", isCorrect, result.Percentage)
 	return result, nil
 }
 

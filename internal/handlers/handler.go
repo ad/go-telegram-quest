@@ -633,7 +633,11 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 		h.editCallbackMessage(ctx, callback, "✅ Ответ одобрен")
 
 		userAnswer, _ := h.answerRepo.GetUserAnswer(userID, stepID)
+		log.Printf("[CALLBACK] userID=%d stepID=%d userAnswer='%s'", userID, stepID, userAnswer)
+
 		percentage, _ := h.answerChecker.CheckTextAnswer(stepID, userAnswer)
+		log.Printf("[CALLBACK] percentage=%d", percentage.Percentage)
+
 		h.handleCorrectAnswer(ctx, userID, step, percentage.Percentage, userAnswer)
 	case "reject":
 		progress.Status = models.StatusRejected
