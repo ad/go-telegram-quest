@@ -676,18 +676,16 @@ func (h *BotHandler) handleBlockUser(ctx context.Context, callback *tgmodels.Cal
 		if len(msg.Photo) > 0 {
 			newText = fmt.Sprintf("🚫 Заблокирован\n👤 %s", displayName)
 			h.bot.EditMessageCaption(ctx, &bot.EditMessageCaptionParams{
-				ChatID:      msg.Chat.ID,
-				MessageID:   msg.ID,
-				Caption:     newText,
-				ReplyMarkup: nil,
+				ChatID:    msg.Chat.ID,
+				MessageID: msg.ID,
+				Caption:   newText,
 			})
 		} else {
 			newText = fmt.Sprintf("🚫 Заблокирован\n👤 %s", displayName)
 			h.bot.EditMessageText(ctx, &bot.EditMessageTextParams{
-				ChatID:      msg.Chat.ID,
-				MessageID:   msg.ID,
-				Text:        newText,
-				ReplyMarkup: nil,
+				ChatID:    msg.Chat.ID,
+				MessageID: msg.ID,
+				Text:      newText,
 			})
 		}
 	}
@@ -706,10 +704,9 @@ func (h *BotHandler) editCallbackMessage(ctx context.Context, callback *tgmodels
 
 	if len(msg.Photo) > 0 {
 		_, err := h.bot.EditMessageCaption(ctx, &bot.EditMessageCaptionParams{
-			ChatID:      msg.Chat.ID,
-			MessageID:   msg.ID,
-			Caption:     newText,
-			ReplyMarkup: nil,
+			ChatID:    msg.Chat.ID,
+			MessageID: msg.ID,
+			Caption:   newText,
 		})
 		if isMessageNotFoundError(err) {
 			h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
@@ -720,10 +717,9 @@ func (h *BotHandler) editCallbackMessage(ctx context.Context, callback *tgmodels
 		}
 	} else {
 		_, err := h.bot.EditMessageText(ctx, &bot.EditMessageTextParams{
-			ChatID:      msg.Chat.ID,
-			MessageID:   msg.ID,
-			Text:        newText,
-			ReplyMarkup: nil,
+			ChatID:    msg.Chat.ID,
+			MessageID: msg.ID,
+			Text:      newText,
 		})
 		if isMessageNotFoundError(err) {
 			h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
@@ -932,8 +928,7 @@ func (h *BotHandler) sendHintMessage(ctx context.Context, userID int64, step *mo
 
 func (h *BotHandler) removeHintButton(ctx context.Context, userID int64, messageID int) {
 	h.bot.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
-		ChatID:      userID,
-		MessageID:   messageID,
-		ReplyMarkup: nil,
+		ChatID:    userID,
+		MessageID: messageID,
 	})
 }
