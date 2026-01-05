@@ -165,6 +165,8 @@ func (h *BotHandler) sendShadowBanResponse(ctx context.Context, chatID int64) {
 }
 
 func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
+	log.Printf("[HANDLER] handleCallback called with data: %s, from: %d, adminID: %d", callback.Data, callback.From.ID, h.adminID)
+
 	if strings.HasPrefix(callback.Data, "next_step:") {
 		h.handleNextStepCallback(ctx, callback)
 		return
@@ -176,14 +178,19 @@ func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.Call
 	}
 
 	if callback.From.ID != h.adminID {
+		log.Printf("[HANDLER] callback from non-admin user: %d", callback.From.ID)
 		return
 	}
 
-	if h.adminHandler.HandleCallback(ctx, callback) {
+	adminHandled := h.adminHandler.HandleCallback(ctx, callback)
+	log.Printf("[HANDLER] adminHandler.HandleCallback returned: %t", adminHandled)
+	if adminHandled {
 		return
 	}
 
+	log.Printf("[HANDLER] processing callback in main handler: %s", callback.Data)
 	if strings.HasPrefix(callback.Data, "approve:") || strings.HasPrefix(callback.Data, "reject:") {
+		log.Printf("[HANDLER] calling handleAdminDecision")
 		h.handleAdminDecision(ctx, callback)
 	} else if strings.HasPrefix(callback.Data, "block:") {
 		h.handleBlockUser(ctx, callback)
