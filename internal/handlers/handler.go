@@ -322,6 +322,8 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 		return
 	}
 
+	h.evaluateSecretAnswer(ctx, userID, msg.Text)
+
 	if state.IsCompleted {
 		h.evaluateAchievementsOnPostCompletion(ctx, userID)
 		return
@@ -483,7 +485,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 
 	h.updateStatistics(ctx)
 
-	h.evaluateAchievementsOnCorrectAnswer(ctx, userID, textAnswer)
+	h.evaluateAchievementsOnCorrectAnswer(ctx, userID)
 }
 
 func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOrder int) {
@@ -969,7 +971,7 @@ func (h *BotHandler) removeHintButton(ctx context.Context, userID int64, message
 	})
 }
 
-func (h *BotHandler) evaluateAchievementsOnCorrectAnswer(ctx context.Context, userID int64, textAnswer string) {
+func (h *BotHandler) evaluateAchievementsOnCorrectAnswer(ctx context.Context, userID int64) {
 	if h.achievementEngine == nil {
 		return
 	}
@@ -988,13 +990,6 @@ func (h *BotHandler) evaluateAchievementsOnCorrectAnswer(ctx context.Context, us
 		log.Printf("[HANDLER] Error evaluating position achievements: %v", err)
 	} else {
 		allAwarded = append(allAwarded, positionAwarded...)
-	}
-
-	answerAwarded, err := h.achievementEngine.OnAnswerSubmitted(userID, textAnswer)
-	if err != nil {
-		log.Printf("[HANDLER] Error evaluating answer achievements: %v", err)
-	} else {
-		allAwarded = append(allAwarded, answerAwarded...)
 	}
 
 	hintAwarded, err := h.achievementEngine.EvaluateHintAchievements(userID)
@@ -1092,4 +1087,18 @@ func (h *BotHandler) notifyAchievements(ctx context.Context, userID int64, achie
 	if err := h.achievementNotifier.NotifyAchievements(ctx, userID, achievementKeys); err != nil {
 		log.Printf("[HANDLER] Error notifying achievements: %v", err)
 	}
+}
+
+func (h *BotHandler) evaluateSecretAnswer(ctx context.Context, userID int64, answer string) {
+	if h.achievementEngine == nil {
+		return
+	}
+
+	awarded, err := h.achievementEngine.OnAnswerSubmitted(userID, answer)
+	if err != nil {
+		log.Printf("[HANDLER] Error evaluating secret answer achievements: %v", err)
+		return
+	}
+
+	h.notifyAchievements(ctx, userID, awarded)
 }
