@@ -18,19 +18,44 @@ type Statistics struct {
 	Leaders   []*models.User
 }
 
+type ExtendedStatistics struct {
+	StepStats           []StepStats
+	Leaders             []*models.User
+	TotalAchievements   int
+	AchievementsByUser  map[int64]int
+	TopAchievementUsers []UserAchievementStats
+}
+
+type UserAchievementStats struct {
+	User             *models.User
+	AchievementCount int
+}
+
 type StatisticsService struct {
-	queue        *db.DBQueue
-	stepRepo     *db.StepRepository
-	progressRepo *db.ProgressRepository
-	userRepo     *db.UserRepository
+	queue           *db.DBQueue
+	stepRepo        *db.StepRepository
+	progressRepo    *db.ProgressRepository
+	userRepo        *db.UserRepository
+	achievementRepo *db.AchievementRepository
 }
 
 func NewStatisticsService(queue *db.DBQueue, stepRepo *db.StepRepository, progressRepo *db.ProgressRepository, userRepo *db.UserRepository) *StatisticsService {
 	return &StatisticsService{
-		queue:        queue,
-		stepRepo:     stepRepo,
-		progressRepo: progressRepo,
-		userRepo:     userRepo,
+		queue:           queue,
+		stepRepo:        stepRepo,
+		progressRepo:    progressRepo,
+		userRepo:        userRepo,
+		achievementRepo: nil,
+	}
+}
+
+func NewStatisticsServiceWithAchievements(queue *db.DBQueue, stepRepo *db.StepRepository, progressRepo *db.ProgressRepository, userRepo *db.UserRepository, achievementRepo *db.AchievementRepository) *StatisticsService {
+	return &StatisticsService{
+		queue:           queue,
+		stepRepo:        stepRepo,
+		progressRepo:    progressRepo,
+		userRepo:        userRepo,
+		achievementRepo: achievementRepo,
 	}
 }
 
@@ -185,4 +210,117 @@ func (s *StatisticsService) GetUserProgress(userID int64) (int, int, float64, er
 	}
 
 	return answeredCount, activeCount, percentage, nil
+}
+
+func (s *StatisticsService) GetUserAchievementCount(userID int64) (int, error) {
+	if s.achievementRepo == nil {
+		return 0, nil
+	}
+	return s.achievementRepo.CountUserAchievements(userID)
+}
+
+func (s *StatisticsService) CalculateExtendedStats() (*ExtendedStatistics, error) {
+	basicStats, err := s.CalculateStats()
+	if err != nil {
+		return nil, err
+	}
+
+	extStats := &ExtendedStatistics{
+		StepStats:          basicStats.StepStats,
+		Leaders:            basicStats.Leaders,
+		AchievementsByUser: make(map[int64]int),
+	}
+
+	if s.achievementRepo == nil {
+		return extStats, nil
+	}
+
+	achievementStats, err := s.achievementRepo.GetAchievementStats()
+	if err != nil {
+		return extStats, nil
+	}
+
+	totalAchievements := 0
+	for _, count := range achievementStats {
+		totalAchievements += count
+	}
+	extStats.TotalAchievements = totalAchievements
+
+	userCounts, err := s.achievementRepo.GetUsersWithAchievementCount()
+	if err != nil {
+		return extStats, nil
+	}
+	extStats.AchievementsByUser = userCounts
+
+	type userCount struct {
+		userID int64
+		count  int
+	}
+	var sortedUsers []userCount
+	for userID, count := range userCounts {
+		sortedUsers = append(sortedUsers, userCount{userID, count})
+	}
+
+	for i := 0; i < len(sortedUsers)-1; i++ {
+		for j := i + 1; j < len(sortedUsers); j++ {
+			if sortedUsers[j].count > sortedUsers[i].count {
+				sortedUsers[i], sortedUsers[j] = sortedUsers[j], sortedUsers[i]
+			}
+		}
+	}
+
+	limit := 10
+	if len(sortedUsers) < limit {
+		limit = len(sortedUsers)
+	}
+
+	for i := 0; i < limit; i++ {
+		user, err := s.userRepo.GetByID(sortedUsers[i].userID)
+		if err != nil {
+			continue
+		}
+		extStats.TopAchievementUsers = append(extStats.TopAchievementUsers, UserAchievementStats{
+			User:             user,
+			AchievementCount: sortedUsers[i].count,
+		})
+	}
+
+	return extStats, nil
+}
+
+func (s *StatisticsService) GetUserStatisticsWithAchievements(userID int64) (*UserStatisticsWithAchievements, error) {
+	stats := &UserStatisticsWithAchievements{}
+
+	answered, total, percentage, err := s.GetUserProgress(userID)
+	if err != nil {
+		return nil, err
+	}
+	stats.AnsweredSteps = answered
+	stats.TotalSteps = total
+	stats.ProgressPercentage = percentage
+
+	position, totalUsers, err := s.GetUserLeaderboardPosition(userID)
+	if err != nil {
+		return nil, err
+	}
+	stats.LeaderboardPosition = position
+	stats.TotalUsers = totalUsers
+
+	if s.achievementRepo != nil {
+		achievementCount, err := s.achievementRepo.CountUserAchievements(userID)
+		if err == nil {
+			stats.AchievementCount = achievementCount
+		}
+	}
+
+	return stats, nil
+}
+
+type UserStatisticsWithAchievements struct {
+	AnsweredSteps       int
+	TotalSteps          int
+	ProgressPercentage  float64
+	LeaderboardPosition int
+	TotalUsers          int
+	AchievementCount    int
 }

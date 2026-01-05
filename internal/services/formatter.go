@@ -164,11 +164,12 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 	// Ranking section
 	result += "🏆 Рейтинг:\n"
 	medal := ""
-	if stats.LeaderboardPosition == 1 {
+	switch stats.LeaderboardPosition {
+	case 1:
 		medal = "🥇 "
-	} else if stats.LeaderboardPosition == 2 {
+	case 2:
 		medal = "🥈 "
-	} else if stats.LeaderboardPosition == 3 {
+	case 3:
 		medal = "🥉 "
 	}
 	result += fmt.Sprintf("• Место: %s%d из %d\n", medal, stats.LeaderboardPosition, stats.TotalUsers)
@@ -178,10 +179,6 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 	result += "📅 Участие:\n"
 	result += fmt.Sprintf("• Регистрация: %s\n", FormatDateTime(stats.RegistrationDate))
 	result += fmt.Sprintf("• В квесте: %s\n", FormatTimeAgo(stats.RegistrationDate))
-
-	if isCompleted {
-		result += "• Статус: ✅ Квест завершён\n"
-	}
 
 	return result
 }

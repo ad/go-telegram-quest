@@ -19,11 +19,18 @@ type UserListPage struct {
 }
 
 type UserDetails struct {
-	User        *models.User
-	CurrentStep *models.Step
-	Status      models.ProgressStatus
-	IsCompleted bool
-	Statistics  *UserStatistics
+	User             *models.User
+	CurrentStep      *models.Step
+	Status           models.ProgressStatus
+	IsCompleted      bool
+	Statistics       *UserStatistics
+	AchievementCount int
+	Achievements     []*UserAchievementInfo
+}
+
+type UserAchievementInfo struct {
+	Name     string
+	Category models.AchievementCategory
 }
 
 type UserStatistics struct {

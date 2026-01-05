@@ -529,11 +529,24 @@ func TestProperty21_BlockButtonConditionalDisplay(t *testing.T) {
 			rt.Fatal("Keyboard should not be nil")
 		}
 
-		if len(keyboard.InlineKeyboard) < 3 {
-			rt.Fatal("Keyboard should have at least 3 rows")
+		if len(keyboard.InlineKeyboard) < 4 {
+			rt.Fatal("Keyboard should have at least 4 rows")
 		}
 
-		blockRow := keyboard.InlineKeyboard[0]
+		// Row 0: Achievements button
+		achievementsRow := keyboard.InlineKeyboard[0]
+		if len(achievementsRow) != 1 {
+			rt.Fatalf("Achievements row should have exactly 1 button, got %d", len(achievementsRow))
+		}
+		if achievementsRow[0].Text != "🏆 Достижения" {
+			rt.Errorf("Expected achievements button text '🏆 Достижения', got '%s'", achievementsRow[0].Text)
+		}
+		if !containsUserID(achievementsRow[0].CallbackData, "user_achievements:", userID) {
+			rt.Errorf("Expected achievements callback 'user_achievements:%d', got '%s'", userID, achievementsRow[0].CallbackData)
+		}
+
+		// Row 1: Block/Unblock button
+		blockRow := keyboard.InlineKeyboard[1]
 		if len(blockRow) != 1 {
 			rt.Fatalf("Block row should have exactly 1 button, got %d", len(blockRow))
 		}
@@ -556,7 +569,8 @@ func TestProperty21_BlockButtonConditionalDisplay(t *testing.T) {
 			}
 		}
 
-		resetRow := keyboard.InlineKeyboard[1]
+		// Row 2: Reset button
+		resetRow := keyboard.InlineKeyboard[2]
 		if len(resetRow) != 1 {
 			rt.Fatalf("Reset row should have exactly 1 button, got %d", len(resetRow))
 		}
@@ -567,7 +581,8 @@ func TestProperty21_BlockButtonConditionalDisplay(t *testing.T) {
 			rt.Errorf("Expected reset callback 'reset:%d', got '%s'", userID, resetRow[0].CallbackData)
 		}
 
-		backRow := keyboard.InlineKeyboard[2]
+		// Row 3: Back button
+		backRow := keyboard.InlineKeyboard[3]
 		if len(backRow) != 1 {
 			rt.Fatalf("Back row should have exactly 1 button, got %d", len(backRow))
 		}
@@ -795,4 +810,406 @@ func TestProperty3_HintUsageTracking(t *testing.T) {
 			rt.Error("HintMessageID should be 0 after reset")
 		}
 	})
+}
+
+func setupTestDBWithAchievements(t *testing.T) (*db.DBQueue, func()) {
+	sqlDB, err := sql.Open("sqlite", "file::memory:?cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY,
+			first_name TEXT,
+			last_name TEXT,
+			username TEXT,
+			is_blocked BOOLEAN DEFAULT FALSE,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS steps (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			step_order INTEGER UNIQUE NOT NULL,
+			text TEXT NOT NULL,
+			answer_type TEXT NOT NULL DEFAULT 'text',
+			has_auto_check BOOLEAN DEFAULT FALSE,
+			is_active BOOLEAN DEFAULT TRUE,
+			is_deleted BOOLEAN DEFAULT FALSE,
+			correct_answer_image TEXT,
+			hint_text TEXT DEFAULT '',
+			hint_image TEXT DEFAULT '',
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS step_images (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			step_id INTEGER NOT NULL REFERENCES steps(id),
+			file_id TEXT NOT NULL,
+			position INTEGER NOT NULL DEFAULT 0
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS step_answers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			step_id INTEGER NOT NULL REFERENCES steps(id),
+			answer TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS user_progress (
+			user_id INTEGER NOT NULL REFERENCES users(id),
+			step_id INTEGER NOT NULL REFERENCES steps(id),
+			status TEXT NOT NULL DEFAULT 'pending',
+			completed_at DATETIME,
+			PRIMARY KEY (user_id, step_id)
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS user_answers (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL REFERENCES users(id),
+			step_id INTEGER NOT NULL REFERENCES steps(id),
+			text_answer TEXT,
+			hint_used BOOLEAN DEFAULT FALSE,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS answer_images (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			answer_id INTEGER NOT NULL REFERENCES user_answers(id),
+			file_id TEXT NOT NULL,
+			position INTEGER NOT NULL DEFAULT 0
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS settings (
+			key TEXT PRIMARY KEY,
+			value TEXT NOT NULL
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		INSERT INTO settings (key, value) VALUES 
+			('welcome_message', 'Welcome!'),
+			('final_message', 'Congratulations!'),
+			('correct_answer_message', 'Correct!'),
+			('wrong_answer_message', 'Wrong!')
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS user_chat_state (
+			user_id INTEGER PRIMARY KEY REFERENCES users(id),
+			last_task_message_id INTEGER,
+			last_user_answer_message_id INTEGER,
+			last_reaction_message_id INTEGER,
+			hint_message_id INTEGER DEFAULT 0,
+			current_step_hint_used BOOLEAN DEFAULT FALSE
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS achievements (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			key TEXT UNIQUE NOT NULL,
+			name TEXT NOT NULL,
+			description TEXT NOT NULL,
+			category TEXT NOT NULL,
+			type TEXT NOT NULL,
+			is_unique BOOLEAN DEFAULT FALSE,
+			conditions TEXT NOT NULL,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			is_active BOOLEAN DEFAULT TRUE
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = sqlDB.Exec(`
+		CREATE TABLE IF NOT EXISTS user_achievements (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id INTEGER NOT NULL REFERENCES users(id),
+			achievement_id INTEGER NOT NULL REFERENCES achievements(id),
+			earned_at DATETIME NOT NULL,
+			is_retroactive BOOLEAN DEFAULT FALSE,
+			UNIQUE(user_id, achievement_id)
+		)
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	queue := db.NewDBQueue(sqlDB)
+	return queue, func() {
+		queue.Close()
+		sqlDB.Close()
+	}
+}
+
+func TestAchievementIntegration_ProgressAchievementOnCorrectAnswer(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupTestDBWithAchievements(t)
+		defer cleanup()
+
+		userRepo := db.NewUserRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+		progressRepo := db.NewProgressRepository(queue)
+		achievementRepo := db.NewAchievementRepository(queue)
+
+		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
+		user := &models.User{
+			ID:        userID,
+			FirstName: "Test",
+		}
+		if err := userRepo.CreateOrUpdate(user); err != nil {
+			rt.Fatal(err)
+		}
+
+		achievement := &models.Achievement{
+			Key:         "beginner_5",
+			Name:        "Начинающий",
+			Description: "5 правильных ответов",
+			Category:    models.CategoryProgress,
+			Type:        models.TypeProgressBased,
+			IsUnique:    false,
+			Conditions:  models.AchievementConditions{CorrectAnswers: intPtr(5)},
+			IsActive:    true,
+		}
+		if err := achievementRepo.Create(achievement); err != nil {
+			rt.Fatal(err)
+		}
+
+		numCorrectAnswers := rapid.IntRange(1, 10).Draw(rt, "numCorrectAnswers")
+		for i := 0; i < numCorrectAnswers; i++ {
+			step := &models.Step{
+				StepOrder:    i + 1,
+				Text:         fmt.Sprintf("Step %d", i+1),
+				AnswerType:   models.AnswerTypeText,
+				HasAutoCheck: true,
+				IsActive:     true,
+			}
+			stepID, err := stepRepo.Create(step)
+			if err != nil {
+				rt.Fatal(err)
+			}
+
+			progress := &models.UserProgress{
+				UserID: userID,
+				StepID: stepID,
+				Status: models.StatusApproved,
+			}
+			if err := progressRepo.Create(progress); err != nil {
+				rt.Fatal(err)
+			}
+		}
+
+		achievementEngine := services.NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+		awarded, err := achievementEngine.EvaluateProgressAchievements(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		hasAchievement, err := achievementRepo.HasUserAchievement(userID, "beginner_5")
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		if numCorrectAnswers >= 5 {
+			if !hasAchievement {
+				rt.Errorf("User with %d correct answers should have beginner_5 achievement", numCorrectAnswers)
+			}
+			found := false
+			for _, key := range awarded {
+				if key == "beginner_5" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				rt.Error("beginner_5 should be in awarded list")
+			}
+		} else {
+			if hasAchievement {
+				rt.Errorf("User with %d correct answers should not have beginner_5 achievement", numCorrectAnswers)
+			}
+		}
+	})
+}
+
+func TestAchievementIntegration_SecretAgentOnSpecificAnswer(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupTestDBWithAchievements(t)
+		defer cleanup()
+
+		userRepo := db.NewUserRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+		progressRepo := db.NewProgressRepository(queue)
+		achievementRepo := db.NewAchievementRepository(queue)
+
+		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
+		user := &models.User{
+			ID:        userID,
+			FirstName: "Test",
+		}
+		if err := userRepo.CreateOrUpdate(user); err != nil {
+			rt.Fatal(err)
+		}
+
+		secretAnswer := "сезам откройся"
+		achievement := &models.Achievement{
+			Key:         "secret_agent",
+			Name:        "Секретный Агент",
+			Description: "Использовал секретную фразу",
+			Category:    models.CategorySpecial,
+			Type:        models.TypeActionBased,
+			IsUnique:    false,
+			Conditions:  models.AchievementConditions{SpecificAnswer: &secretAnswer},
+			IsActive:    true,
+		}
+		if err := achievementRepo.Create(achievement); err != nil {
+			rt.Fatal(err)
+		}
+
+		step := &models.Step{
+			StepOrder:    1,
+			Text:         "Test step",
+			AnswerType:   models.AnswerTypeText,
+			HasAutoCheck: true,
+			IsActive:     true,
+		}
+		_, err := stepRepo.Create(step)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		achievementEngine := services.NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+
+		useSecretAnswer := rapid.Bool().Draw(rt, "useSecretAnswer")
+		var answer string
+		if useSecretAnswer {
+			answer = secretAnswer
+		} else {
+			answer = rapid.StringMatching(`[a-zA-Z]{5,15}`).Draw(rt, "regularAnswer")
+		}
+
+		awarded, err := achievementEngine.OnAnswerSubmitted(userID, answer)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		hasAchievement, err := achievementRepo.HasUserAchievement(userID, "secret_agent")
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		if useSecretAnswer {
+			if !hasAchievement {
+				rt.Error("User who used secret answer should have secret_agent achievement")
+			}
+			found := false
+			for _, key := range awarded {
+				if key == "secret_agent" {
+					found = true
+					break
+				}
+			}
+			if !found {
+				rt.Error("secret_agent should be in awarded list")
+			}
+		} else {
+			if hasAchievement {
+				rt.Error("User who did not use secret answer should not have secret_agent achievement")
+			}
+		}
+	})
+}
+
+func TestAchievementIntegration_NotificationDelivery(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupTestDBWithAchievements(t)
+		defer cleanup()
+
+		achievementRepo := db.NewAchievementRepository(queue)
+
+		achievement := &models.Achievement{
+			Key:         "test_achievement",
+			Name:        "Тестовое достижение",
+			Description: "Описание тестового достижения",
+			Category:    models.CategoryProgress,
+			Type:        models.TypeProgressBased,
+			IsUnique:    false,
+			Conditions:  models.AchievementConditions{},
+			IsActive:    true,
+		}
+		if err := achievementRepo.Create(achievement); err != nil {
+			rt.Fatal(err)
+		}
+
+		notifier := services.NewAchievementNotifier(nil, achievementRepo, nil)
+
+		notifications, err := notifier.PrepareNotifications([]string{"test_achievement"})
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		if len(notifications) != 1 {
+			rt.Fatalf("Expected 1 notification, got %d", len(notifications))
+		}
+
+		notification := notifications[0]
+		if notification.AchievementKey != "test_achievement" {
+			rt.Errorf("Expected achievement key 'test_achievement', got '%s'", notification.AchievementKey)
+		}
+
+		if notification.Achievement == nil {
+			rt.Fatal("Achievement should not be nil")
+		}
+
+		if notification.Achievement.Name != "Тестовое достижение" {
+			rt.Errorf("Expected achievement name 'Тестовое достижение', got '%s'", notification.Achievement.Name)
+		}
+
+		if notification.Message == "" {
+			rt.Error("Notification message should not be empty")
+		}
+
+		expectedEmoji := notifier.GetAchievementEmoji(notification.Achievement)
+		if expectedEmoji == "" {
+			rt.Error("Achievement emoji should not be empty")
+		}
+	})
+}
+
+func intPtr(i int) *int {
+	return &i
 }

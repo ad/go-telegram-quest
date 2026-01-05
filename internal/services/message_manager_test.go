@@ -12,8 +12,6 @@ import (
 	"pgregory.net/rapid"
 )
 
-type mockSendFunc func(ctx context.Context, params *bot.SendMessageParams) (*tgmodels.Message, error)
-
 type retryTracker struct {
 	attempts     int32
 	failUntil    int32
@@ -21,7 +19,7 @@ type retryTracker struct {
 	successMsgID int
 }
 
-func (r *retryTracker) send(ctx context.Context, params *bot.SendMessageParams) (*tgmodels.Message, error) {
+func (r *retryTracker) send(_ context.Context, _ *bot.SendMessageParams) (*tgmodels.Message, error) {
 	attempt := atomic.AddInt32(&r.attempts, 1)
 	if attempt <= r.failUntil {
 		return nil, r.lastErr

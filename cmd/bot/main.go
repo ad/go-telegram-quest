@@ -60,6 +60,7 @@ func main() {
 	chatStateRepo := db.NewChatStateRepository(dbQueue)
 	adminMessagesRepo := db.NewAdminMessagesRepository(dbQueue)
 	adminStateRepo := db.NewAdminStateRepository(dbQueue)
+	achievementRepo := db.NewAchievementRepository(dbQueue)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -77,9 +78,12 @@ func main() {
 	stateResolver := services.NewStateResolver(stepRepo, progressRepo, userRepo)
 	answerChecker := services.NewAnswerChecker(answerRepo, progressRepo, userRepo)
 	msgManager := services.NewMessageManager(b, chatStateRepo, errorManager)
-	statsService := services.NewStatisticsService(dbQueue, stepRepo, progressRepo, userRepo)
+	statsService := services.NewStatisticsServiceWithAchievements(dbQueue, stepRepo, progressRepo, userRepo, achievementRepo)
 	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
 	questStateManager := services.NewQuestStateManager(settingsRepo)
+	achievementEngine := services.NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, dbQueue)
+	achievementNotifier := services.NewAchievementNotifier(b, achievementRepo, msgManager)
+	achievementService := services.NewAchievementService(achievementRepo, userRepo)
 
 	handler := handlers.NewBotHandler(
 		b,
@@ -99,6 +103,9 @@ func main() {
 		adminStateRepo,
 		userManager,
 		questStateManager,
+		achievementEngine,
+		achievementNotifier,
+		achievementService,
 	)
 
 	b.RegisterHandlerMatchFunc(func(update *tgmodels.Update) bool {

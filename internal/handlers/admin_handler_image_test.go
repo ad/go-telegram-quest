@@ -39,9 +39,9 @@ func TestImageManagementStates(t *testing.T) {
 
 func TestAdminStateImageFields(t *testing.T) {
 	state := &models.AdminState{
-		UserID:           123,
-		CurrentState:     fsm.StateAdminReplaceImage,
-		EditingStepID:    1,
+		// UserID:           123,
+		// CurrentState:     fsm.StateAdminReplaceImage,
+		// EditingStepID:    1,
 		ImagePosition:    2,
 		ReplacingImageID: 456,
 	}

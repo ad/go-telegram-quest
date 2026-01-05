@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log"
 	"math/rand"
 	"strings"
 
@@ -30,6 +31,8 @@ type BotHandler struct {
 	adminMessagesRepo    *db.AdminMessagesRepository
 	adminHandler         *AdminHandler
 	questStateMiddleware *services.QuestStateMiddleware
+	achievementEngine    *services.AchievementEngine
+	achievementNotifier  *services.AchievementNotifier
 }
 
 func NewBotHandler(
@@ -50,8 +53,11 @@ func NewBotHandler(
 	adminStateRepo *db.AdminStateRepository,
 	userManager *services.UserManager,
 	questStateManager *services.QuestStateManager,
+	achievementEngine *services.AchievementEngine,
+	achievementNotifier *services.AchievementNotifier,
+	achievementService *services.AchievementService,
 ) *BotHandler {
-	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo, questStateManager)
+	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo, questStateManager, achievementService)
 	questStateMiddleware := services.NewQuestStateMiddleware(questStateManager, adminID)
 
 	return &BotHandler{
@@ -71,6 +77,8 @@ func NewBotHandler(
 		adminMessagesRepo:    adminMessagesRepo,
 		adminHandler:         adminHandler,
 		questStateMiddleware: questStateMiddleware,
+		achievementEngine:    achievementEngine,
+		achievementNotifier:  achievementNotifier,
 	}
 }
 
@@ -310,7 +318,16 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 	userID := msg.From.ID
 
 	state, err := h.stateResolver.ResolveState(userID)
-	if err != nil || state.IsCompleted || state.CurrentStep == nil {
+	if err != nil {
+		return
+	}
+
+	if state.IsCompleted {
+		h.evaluateAchievementsOnPostCompletion(ctx, userID)
+		return
+	}
+
+	if state.CurrentStep == nil {
 		return
 	}
 
@@ -347,7 +364,7 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 		}
 
 		if result.IsCorrect {
-			h.handleCorrectAnswer(ctx, userID, step, result.Percentage)
+			h.handleCorrectAnswer(ctx, userID, step, result.Percentage, msg.Text)
 		} else {
 			h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
 			settings, _ := h.settingsRepo.GetAll()
@@ -393,7 +410,7 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 	}
 }
 
-func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step *models.Step, percentage int) {
+func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step *models.Step, percentage int, textAnswer string) {
 	// Удаляем предыдущие сообщения пользователя и реакции (включая сообщения о неверных ответах)
 	h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
 
@@ -465,6 +482,8 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	}
 
 	h.updateStatistics(ctx)
+
+	h.evaluateAchievementsOnCorrectAnswer(ctx, userID, textAnswer)
 }
 
 func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOrder int) {
@@ -483,6 +502,8 @@ func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOr
 		}, "5046509860389126442") // 🎉
 
 		h.notifyAdminQuestCompleted(ctx, userID)
+
+		h.evaluateAchievementsOnQuestCompleted(ctx, userID)
 		return
 	}
 
@@ -513,15 +534,26 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 	userID := msg.From.ID
 
 	state, err := h.stateResolver.ResolveState(userID)
-	if err != nil || state.IsCompleted || state.CurrentStep == nil {
+	if err != nil {
+		return
+	}
+
+	if state.IsCompleted {
+		h.evaluateAchievementsOnPostCompletion(ctx, userID)
+		return
+	}
+
+	if state.CurrentStep == nil {
 		return
 	}
 
 	step := state.CurrentStep
 
-	if step.AnswerType == models.AnswerTypeText {
+	isTextTask := step.AnswerType == models.AnswerTypeText
+	if isTextTask {
 		h.msgManager.SaveUserAnswerMessageID(userID, msg.ID)
 		h.msgManager.SendReaction(ctx, userID, "📝 Для этого задания нужно отправить текст")
+		h.evaluateAchievementsOnPhotoSubmitted(ctx, userID, true)
 		return
 	}
 
@@ -555,6 +587,8 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 
 	h.sendToAdminForReview(ctx, userID, step, "", []string{fileID})
 	h.msgManager.SendReaction(ctx, userID, "⏳ Ваше фото отправлено на проверку")
+
+	h.evaluateAchievementsOnPhotoSubmitted(ctx, userID, false)
 }
 
 func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels.CallbackQuery) {
@@ -597,7 +631,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 		h.editCallbackMessage(ctx, callback, "✅ Ответ одобрен")
 
 		percentage, _ := h.answerChecker.CheckTextAnswer(stepID, "")
-		h.handleCorrectAnswer(ctx, userID, step, percentage.Percentage)
+		h.handleCorrectAnswer(ctx, userID, step, percentage.Percentage, "")
 	case "reject":
 		progress.Status = models.StatusRejected
 		if err := h.progressRepo.Update(progress); err != nil {
@@ -899,6 +933,8 @@ func (h *BotHandler) handleHintCallback(ctx context.Context, callback *tgmodels.
 	h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
 		CallbackQueryID: callback.ID,
 	})
+
+	h.evaluateAchievementsOnHintUsed(ctx, userID)
 }
 
 func (h *BotHandler) sendHintMessage(ctx context.Context, userID int64, step *models.Step) (int, error) {
@@ -931,4 +967,129 @@ func (h *BotHandler) removeHintButton(ctx context.Context, userID int64, message
 		ChatID:    userID,
 		MessageID: messageID,
 	})
+}
+
+func (h *BotHandler) evaluateAchievementsOnCorrectAnswer(ctx context.Context, userID int64, textAnswer string) {
+	if h.achievementEngine == nil {
+		return
+	}
+
+	var allAwarded []string
+
+	progressAwarded, err := h.achievementEngine.EvaluateProgressAchievements(userID)
+	if err != nil {
+		log.Printf("[HANDLER] Error evaluating progress achievements: %v", err)
+	} else {
+		allAwarded = append(allAwarded, progressAwarded...)
+	}
+
+	positionAwarded, err := h.achievementEngine.EvaluatePositionBasedAchievements(userID)
+	if err != nil {
+		log.Printf("[HANDLER] Error evaluating position achievements: %v", err)
+	} else {
+		allAwarded = append(allAwarded, positionAwarded...)
+	}
+
+	answerAwarded, err := h.achievementEngine.OnAnswerSubmitted(userID, textAnswer)
+	if err != nil {
+		log.Printf("[HANDLER] Error evaluating answer achievements: %v", err)
+	} else {
+		allAwarded = append(allAwarded, answerAwarded...)
+	}
+
+	hintAwarded, err := h.achievementEngine.EvaluateHintAchievements(userID)
+	if err != nil {
+		log.Printf("[HANDLER] Error evaluating hint achievements: %v", err)
+	} else {
+		allAwarded = append(allAwarded, hintAwarded...)
+	}
+
+	if len(allAwarded) > 0 {
+		compositeAwarded, err := h.achievementEngine.EvaluateCompositeAchievements(userID)
+		if err != nil {
+			log.Printf("[HANDLER] Error evaluating composite achievements: %v", err)
+		} else {
+			allAwarded = append(allAwarded, compositeAwarded...)
+		}
+	}
+
+	h.notifyAchievements(ctx, userID, allAwarded)
+}
+
+func (h *BotHandler) evaluateAchievementsOnQuestCompleted(ctx context.Context, userID int64) {
+	if h.achievementEngine == nil {
+		return
+	}
+
+	var allAwarded []string
+
+	completionAwarded, err := h.achievementEngine.EvaluateCompletionAchievements(userID)
+	if err != nil {
+		log.Printf("[HANDLER] Error evaluating completion achievements: %v", err)
+	} else {
+		allAwarded = append(allAwarded, completionAwarded...)
+	}
+
+	if len(allAwarded) > 0 {
+		compositeAwarded, err := h.achievementEngine.EvaluateCompositeAchievements(userID)
+		if err != nil {
+			log.Printf("[HANDLER] Error evaluating composite achievements: %v", err)
+		} else {
+			allAwarded = append(allAwarded, compositeAwarded...)
+		}
+	}
+
+	h.notifyAchievements(ctx, userID, allAwarded)
+}
+
+func (h *BotHandler) evaluateAchievementsOnPhotoSubmitted(ctx context.Context, userID int64, isTextTask bool) {
+	if h.achievementEngine == nil {
+		return
+	}
+
+	awarded, err := h.achievementEngine.OnPhotoSubmitted(userID, isTextTask)
+	if err != nil {
+		log.Printf("[HANDLER] Error evaluating photo achievements: %v", err)
+		return
+	}
+
+	h.notifyAchievements(ctx, userID, awarded)
+}
+
+func (h *BotHandler) evaluateAchievementsOnPostCompletion(ctx context.Context, userID int64) {
+	if h.achievementEngine == nil {
+		return
+	}
+
+	awarded, err := h.achievementEngine.OnPostCompletionActivity(userID)
+	if err != nil {
+		log.Printf("[HANDLER] Error evaluating post-completion achievements: %v", err)
+		return
+	}
+
+	h.notifyAchievements(ctx, userID, awarded)
+}
+
+func (h *BotHandler) evaluateAchievementsOnHintUsed(ctx context.Context, userID int64) {
+	if h.achievementEngine == nil {
+		return
+	}
+
+	awarded, err := h.achievementEngine.EvaluateHintAchievements(userID)
+	if err != nil {
+		log.Printf("[HANDLER] Error evaluating hint achievements: %v", err)
+		return
+	}
+
+	h.notifyAchievements(ctx, userID, awarded)
+}
+
+func (h *BotHandler) notifyAchievements(ctx context.Context, userID int64, achievementKeys []string) {
+	if h.achievementNotifier == nil || len(achievementKeys) == 0 {
+		return
+	}
+
+	if err := h.achievementNotifier.NotifyAchievements(ctx, userID, achievementKeys); err != nil {
+		log.Printf("[HANDLER] Error notifying achievements: %v", err)
+	}
 }

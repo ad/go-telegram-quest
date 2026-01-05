@@ -98,6 +98,34 @@ CREATE TABLE IF NOT EXISTS admin_state (
     editing_setting TEXT DEFAULT '',
     new_hint_text TEXT DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS achievements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    category TEXT NOT NULL,
+    type TEXT NOT NULL,
+    is_unique BOOLEAN DEFAULT FALSE,
+    conditions TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS user_achievements (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    achievement_id INTEGER NOT NULL REFERENCES achievements(id),
+    earned_at DATETIME NOT NULL,
+    is_retroactive BOOLEAN DEFAULT FALSE,
+    UNIQUE(user_id, achievement_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_achievements_user_id ON user_achievements(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_achievements_achievement_id ON user_achievements(achievement_id);
+CREATE INDEX IF NOT EXISTS idx_user_achievements_earned_at ON user_achievements(earned_at);
+CREATE INDEX IF NOT EXISTS idx_achievements_key ON achievements(key);
+CREATE INDEX IF NOT EXISTS idx_achievements_category ON achievements(category);
 `
 
 const defaultSettings = `
@@ -143,10 +171,16 @@ func InitSchema(db *sql.DB) error {
 		}
 		// Ignore errors for migrations as columns might already exist, but log them for debugging
 		if _, err := db.Exec(stmt); err != nil {
-			log.Printf("Migration %d failed: %s. Error: %v", i, stmt, err)
+			// log.Printf("Migration %d failed: %s. Error: %v", i, stmt, err)
 		} else {
 			log.Printf("Migration %d executed: %s", i, stmt)
 		}
+	}
+
+	// Initialize default achievements
+	if err := InitializeDefaultAchievements(db); err != nil {
+		log.Printf("Failed to initialize default achievements: %v", err)
+		return err
 	}
 
 	return nil

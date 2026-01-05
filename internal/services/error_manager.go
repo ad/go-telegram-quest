@@ -75,7 +75,7 @@ func (e *ErrorManager) NotifyAdminWithCurl(ctx context.Context, chatID int64, re
 	})
 }
 
-func (e *ErrorManager) buildCurlCommand(chatID int64, request interface{}) string {
+func (e *ErrorManager) buildCurlCommand(_ int64, request interface{}) string {
 	jsonData, err := json.MarshalIndent(request, "", "  ")
 	if err != nil {
 		return fmt.Sprintf("# Failed to serialize request: %v", err)

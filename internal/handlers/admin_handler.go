@@ -15,15 +15,16 @@ import (
 )
 
 type AdminHandler struct {
-	bot               *bot.Bot
-	adminID           int64
-	stepRepo          *db.StepRepository
-	answerRepo        *db.AnswerRepository
-	settingsRepo      *db.SettingsRepository
-	adminStateRepo    *db.AdminStateRepository
-	userManager       *services.UserManager
-	userRepo          *db.UserRepository
-	questStateManager *services.QuestStateManager
+	bot                *bot.Bot
+	adminID            int64
+	stepRepo           *db.StepRepository
+	answerRepo         *db.AnswerRepository
+	settingsRepo       *db.SettingsRepository
+	adminStateRepo     *db.AdminStateRepository
+	userManager        *services.UserManager
+	userRepo           *db.UserRepository
+	questStateManager  *services.QuestStateManager
+	achievementService *services.AchievementService
 }
 
 func NewAdminHandler(
@@ -36,17 +37,19 @@ func NewAdminHandler(
 	userManager *services.UserManager,
 	userRepo *db.UserRepository,
 	questStateManager *services.QuestStateManager,
+	achievementService *services.AchievementService,
 ) *AdminHandler {
 	return &AdminHandler{
-		bot:               b,
-		adminID:           adminID,
-		stepRepo:          stepRepo,
-		answerRepo:        answerRepo,
-		settingsRepo:      settingsRepo,
-		adminStateRepo:    adminStateRepo,
-		userManager:       userManager,
-		userRepo:          userRepo,
-		questStateManager: questStateManager,
+		bot:                b,
+		adminID:            adminID,
+		stepRepo:           stepRepo,
+		answerRepo:         answerRepo,
+		settingsRepo:       settingsRepo,
+		adminStateRepo:     adminStateRepo,
+		userManager:        userManager,
+		userRepo:           userRepo,
+		questStateManager:  questStateManager,
+		achievementService: achievementService,
 	}
 }
 
@@ -163,6 +166,12 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.handleUnblockFromDetails(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "reset:"):
 		h.handleResetFromDetails(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "user_achievements:"):
+		h.showUserAchievements(ctx, chatID, messageID, data)
+	case data == "admin:achievement_stats":
+		h.showAchievementStatistics(ctx, chatID, messageID)
+	case strings.HasPrefix(data, "admin:achievement_leaders"):
+		h.showAchievementLeaders(ctx, chatID, messageID)
 	case data == "admin:step_type:text":
 		h.setStepType(ctx, chatID, messageID, models.AnswerTypeText)
 	case data == "admin:step_type:image":
@@ -227,6 +236,7 @@ func (h *AdminHandler) showAdminMenu(ctx context.Context, chatID int64, messageI
 			{{Text: "📋 Список шагов", CallbackData: "admin:list_steps"}},
 			{{Text: "📤 Экспорт шагов", CallbackData: "admin:export_steps"}},
 			{{Text: "👥 Участники", CallbackData: "admin:users"}},
+			{{Text: "🏆 Достижения", CallbackData: "admin:achievement_stats"}},
 			{{Text: "⚙️ Настройки", CallbackData: "admin:settings"}},
 		},
 	}
@@ -1164,6 +1174,25 @@ func (h *AdminHandler) showUserDetails(ctx context.Context, chatID int64, messag
 		return
 	}
 
+	if h.achievementService != nil {
+		count, err := h.achievementService.GetUserAchievementCount(userID)
+		if err == nil {
+			details.AchievementCount = count
+		}
+
+		summary, err := h.achievementService.GetUserAchievementSummary(userID)
+		if err == nil && summary != nil {
+			for _, achievements := range summary.AchievementsByCategory {
+				for _, a := range achievements {
+					details.Achievements = append(details.Achievements, &services.UserAchievementInfo{
+						Name:     a.Achievement.Name,
+						Category: a.Achievement.Category,
+					})
+				}
+			}
+		}
+	}
+
 	text := FormatUserDetails(details)
 	keyboard := BuildUserDetailsKeyboard(details.User)
 	h.editOrSend(ctx, chatID, messageID, text, keyboard)
@@ -1199,7 +1228,13 @@ func FormatUserDetails(details *services.UserDetails) string {
 		sb.WriteString("📊 Прогресс: Не начат\n")
 	}
 
-	// Add statistics between user info and status
+	if details.AchievementCount > 0 {
+		fmt.Fprintf(&sb, "\n🏆 Достижений: %d\n", details.AchievementCount)
+		for _, a := range details.Achievements {
+			fmt.Fprintf(&sb, "  • %s\n", a.Name)
+		}
+	}
+
 	if details.Statistics != nil {
 		sb.WriteString("\n")
 		sb.WriteString(services.FormatUserStatistics(details.Statistics, details.IsCompleted))
@@ -1225,6 +1260,7 @@ func BuildUserDetailsKeyboard(user *models.User) *tgmodels.InlineKeyboardMarkup 
 
 	return &tgmodels.InlineKeyboardMarkup{
 		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🏆 Достижения", CallbackData: fmt.Sprintf("user_achievements:%d", user.ID)}},
 			{blockBtn},
 			{{Text: "🔄 Сбросить прогресс", CallbackData: fmt.Sprintf("reset:%d", user.ID)}},
 			{{Text: "⬅️ Назад", CallbackData: "admin:userlist"}},
@@ -1928,4 +1964,206 @@ func (h *AdminHandler) formatStepForExport(step *models.Step) string {
 	}
 
 	return stepData.String()
+}
+
+func (h *AdminHandler) showUserAchievements(ctx context.Context, chatID int64, messageID int, data string) {
+	userID, _ := parseInt64(strings.TrimPrefix(data, "user_achievements:"))
+	if userID == 0 {
+		return
+	}
+
+	if h.achievementService == nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Система достижений недоступна", nil)
+		return
+	}
+
+	user, err := h.userRepo.GetByID(userID)
+	if err != nil || user == nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Пользователь не найден", nil)
+		return
+	}
+
+	summary, err := h.achievementService.GetUserAchievementSummary(userID)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при получении достижений", nil)
+		return
+	}
+
+	text := FormatUserAchievements(user, summary)
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "⬅️ Назад к пользователю", CallbackData: fmt.Sprintf("user:%d", userID)}},
+		},
+	}
+
+	h.editOrSend(ctx, chatID, messageID, text, keyboard)
+}
+
+func FormatUserAchievements(user *models.User, summary *services.UserAchievementSummary) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🏆 Достижения пользователя %s\n\n", user.DisplayName()))
+
+	if summary.TotalCount == 0 {
+		sb.WriteString("У пользователя пока нет достижений")
+		return sb.String()
+	}
+
+	sb.WriteString(fmt.Sprintf("Всего достижений: %d\n\n", summary.TotalCount))
+
+	categoryNames := map[models.AchievementCategory]string{
+		models.CategoryProgress:   "📈 Прогресс",
+		models.CategoryCompletion: "🏁 Завершение",
+		models.CategorySpecial:    "⭐ Особые",
+		models.CategoryHints:      "💡 Подсказки",
+		models.CategoryComposite:  "🎖️ Составные",
+		models.CategoryUnique:     "👑 Уникальные",
+	}
+
+	categoryOrder := []models.AchievementCategory{
+		models.CategoryUnique,
+		models.CategoryComposite,
+		models.CategoryCompletion,
+		models.CategoryProgress,
+		models.CategoryHints,
+		models.CategorySpecial,
+	}
+
+	for _, category := range categoryOrder {
+		achievements, exists := summary.AchievementsByCategory[category]
+		if !exists || len(achievements) == 0 {
+			continue
+		}
+
+		categoryName := categoryNames[category]
+		sb.WriteString(fmt.Sprintf("%s:\n", categoryName))
+
+		for _, details := range achievements {
+			sb.WriteString(fmt.Sprintf("  • %s\n", details.Achievement.Name))
+			sb.WriteString(fmt.Sprintf("    %s\n", details.EarnedAt))
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+func (h *AdminHandler) showAchievementStatistics(ctx context.Context, chatID int64, messageID int) {
+	if h.achievementService == nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Система достижений недоступна", nil)
+		return
+	}
+
+	stats, err := h.achievementService.GetAchievementStatistics()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при получении статистики", nil)
+		return
+	}
+
+	text := FormatAchievementStatistics(stats)
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🏅 Лидеры по достижениям", CallbackData: "admin:achievement_leaders"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
+		},
+	}
+
+	h.editOrSend(ctx, chatID, messageID, text, keyboard)
+}
+
+func FormatAchievementStatistics(stats *services.AchievementStatistics) string {
+	var sb strings.Builder
+	sb.WriteString("🏆 Статистика достижений\n\n")
+
+	sb.WriteString("📊 Общая информация:\n")
+	sb.WriteString(fmt.Sprintf("• Всего достижений: %d\n", stats.TotalAchievements))
+	sb.WriteString(fmt.Sprintf("• Выдано достижений: %d\n", stats.TotalUserAchievements))
+	sb.WriteString(fmt.Sprintf("• Участников: %d\n\n", stats.TotalUsers))
+
+	categoryNames := map[models.AchievementCategory]string{
+		models.CategoryProgress:   "📈 Прогресс",
+		models.CategoryCompletion: "🏁 Завершение",
+		models.CategorySpecial:    "⭐ Особые",
+		models.CategoryHints:      "💡 Подсказки",
+		models.CategoryComposite:  "🎖️ Составные",
+		models.CategoryUnique:     "👑 Уникальные",
+	}
+
+	sb.WriteString("📁 По категориям:\n")
+	for category, count := range stats.AchievementsByCategory {
+		name := categoryNames[category]
+		sb.WriteString(fmt.Sprintf("• %s: %d\n", name, count))
+	}
+	sb.WriteString("\n")
+
+	if len(stats.PopularAchievements) > 0 {
+		sb.WriteString("🔥 Популярные достижения:\n")
+		displayCount := 10
+		if len(stats.PopularAchievements) < displayCount {
+			displayCount = len(stats.PopularAchievements)
+		}
+
+		for i := 0; i < displayCount; i++ {
+			pop := stats.PopularAchievements[i]
+			if pop.UserCount > 0 {
+				sb.WriteString(fmt.Sprintf("• %s: %d (%.1f%%)\n",
+					pop.Achievement.Name, pop.UserCount, pop.Percentage))
+			}
+		}
+	}
+
+	return sb.String()
+}
+
+func (h *AdminHandler) showAchievementLeaders(ctx context.Context, chatID int64, messageID int) {
+	if h.achievementService == nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Система достижений недоступна", nil)
+		return
+	}
+
+	rankings, err := h.achievementService.GetUsersWithMostAchievements(15)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при получении рейтинга", nil)
+		return
+	}
+
+	text := FormatAchievementLeaders(rankings)
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "⬅️ Назад к статистике", CallbackData: "admin:achievement_stats"}},
+		},
+	}
+
+	h.editOrSend(ctx, chatID, messageID, text, keyboard)
+}
+
+func FormatAchievementLeaders(rankings []services.UserAchievementRanking) string {
+	var sb strings.Builder
+	sb.WriteString("🏅 Лидеры по достижениям\n\n")
+
+	if len(rankings) == 0 {
+		sb.WriteString("Пока нет пользователей с достижениями")
+		return sb.String()
+	}
+
+	for i, ranking := range rankings {
+		medal := ""
+		switch i {
+		case 0:
+			medal = "🥇 "
+		case 1:
+			medal = "🥈 "
+		case 2:
+			medal = "🥉 "
+		default:
+			medal = fmt.Sprintf("%d. ", i+1)
+		}
+
+		sb.WriteString(fmt.Sprintf("%s%s: %d достижений\n",
+			medal, ranking.User.DisplayName(), ranking.AchievementCount))
+	}
+
+	return sb.String()
 }
