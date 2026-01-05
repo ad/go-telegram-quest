@@ -764,7 +764,7 @@ func (h *BotHandler) sendToAdminForReview(ctx context.Context, userID int64, ste
 		displayName = user.DisplayName()
 	}
 
-	caption := fmt.Sprintf("📋 Ответ на шаг %d\n👤 %s", step.StepOrder, displayName)
+	caption := fmt.Sprintf("👤 %s\n📋 Ответ на шаг %d\n📝 Задание: %s", displayName, step.StepOrder, step.Text)
 
 	keyboard := &tgmodels.InlineKeyboardMarkup{
 		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
