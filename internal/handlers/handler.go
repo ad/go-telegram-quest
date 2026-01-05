@@ -601,8 +601,13 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 }
 
 func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels.CallbackQuery) {
+	log.Printf("[ADMIN_DECISION] starting with data: %s", callback.Data)
+
 	parts := strings.Split(callback.Data, ":")
+	log.Printf("[ADMIN_DECISION] parts: %v", parts)
+
 	if len(parts) != 3 {
+		log.Printf("[ADMIN_DECISION] invalid parts length: %d", len(parts))
 		return
 	}
 
@@ -610,19 +615,26 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 	userID, _ := parseInt64(parts[1])
 	stepID, _ := parseInt64(parts[2])
 
+	log.Printf("[ADMIN_DECISION] action=%s userID=%d stepID=%d", action, userID, stepID)
+
 	if userID == 0 || stepID == 0 {
+		log.Printf("[ADMIN_DECISION] invalid userID or stepID")
 		return
 	}
 
 	progress, err := h.progressRepo.GetByUserAndStep(userID, stepID)
 	if err != nil || progress == nil {
+		log.Printf("[ADMIN_DECISION] progress not found: err=%v progress=%v", err, progress)
 		return
 	}
 
 	step, err := h.stepRepo.GetByID(stepID)
 	if err != nil || step == nil {
+		log.Printf("[ADMIN_DECISION] step not found: err=%v step=%v", err, step)
 		return
 	}
+
+	log.Printf("[ADMIN_DECISION] found progress and step, proceeding with action: %s", action)
 
 	// user, _ := h.userRepo.GetByID(userID)
 	// displayName := fmt.Sprintf("[%d]", userID)
