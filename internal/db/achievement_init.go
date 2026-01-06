@@ -242,7 +242,7 @@ func getDefaultAchievements() []*models.Achievement {
 		IsActive: true,
 	})
 
-	// Completion-based achievements
+	// Completion-based achievements (CorrectAnswers определяется динамически из количества активных шагов)
 	achievements = append(achievements, &models.Achievement{
 		Key:         "winner",
 		Name:        "Победитель",
@@ -250,10 +250,8 @@ func getDefaultAchievements() []*models.Achievement {
 		Category:    models.CategoryCompletion,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
-		Conditions: models.AchievementConditions{
-			CorrectAnswers: intPtr(25), // Assuming 25 is the total number of steps
-		},
-		IsActive: true,
+		Conditions:  models.AchievementConditions{},
+		IsActive:    true,
 	})
 
 	achievements = append(achievements, &models.Achievement{
@@ -264,8 +262,7 @@ func getDefaultAchievements() []*models.Achievement {
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
-			CorrectAnswers: intPtr(25),
-			NoErrors:       boolPtr(true),
+			NoErrors: boolPtr(true),
 		},
 		IsActive: true,
 	})
@@ -278,8 +275,7 @@ func getDefaultAchievements() []*models.Achievement {
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
-			CorrectAnswers: intPtr(25),
-			NoHints:        boolPtr(true),
+			NoHints: boolPtr(true),
 		},
 		IsActive: true,
 	})
@@ -292,7 +288,6 @@ func getDefaultAchievements() []*models.Achievement {
 		Type:        models.TypeTimeBased,
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
-			CorrectAnswers:        intPtr(25),
 			CompletionTimeMinutes: intPtr(10),
 		},
 		IsActive: true,
@@ -306,7 +301,6 @@ func getDefaultAchievements() []*models.Achievement {
 		Type:        models.TypeTimeBased,
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
-			CorrectAnswers:        intPtr(25),
 			CompletionTimeMinutes: intPtr(60),
 		},
 		IsActive: true,
@@ -320,7 +314,6 @@ func getDefaultAchievements() []*models.Achievement {
 		Type:        models.TypeTimeBased,
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
-			CorrectAnswers:        intPtr(25),
 			CompletionTimeMinutes: intPtr(5),
 		},
 		IsActive: true,
@@ -506,7 +499,6 @@ func getDefaultAchievements() []*models.Achievement {
 		Type:        models.TypeComposite,
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
-			CorrectAnswers:        intPtr(25),
 			NoErrors:              boolPtr(true),
 			NoHints:               boolPtr(true),
 			CompletionTimeMinutes: intPtr(30),

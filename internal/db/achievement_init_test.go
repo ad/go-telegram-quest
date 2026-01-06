@@ -137,15 +137,13 @@ func TestAchievementConditionParsing(t *testing.T) {
 		{
 			key: "perfect_path",
 			expectedConditions: func(c *models.AchievementConditions) bool {
-				return c.CorrectAnswers != nil && *c.CorrectAnswers == 25 &&
-					c.NoErrors != nil && *c.NoErrors == true
+				return c.NoErrors != nil && *c.NoErrors == true
 			},
 		},
 		{
 			key: "lightning",
 			expectedConditions: func(c *models.AchievementConditions) bool {
-				return c.CompletionTimeMinutes != nil && *c.CompletionTimeMinutes == 10 &&
-					c.CorrectAnswers != nil && *c.CorrectAnswers == 25
+				return c.CompletionTimeMinutes != nil && *c.CompletionTimeMinutes == 10
 			},
 		},
 		{
