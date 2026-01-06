@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/fsm"
@@ -26,6 +28,7 @@ type AdminHandler struct {
 	questStateManager  *services.QuestStateManager
 	achievementService *services.AchievementService
 	achievementEngine  *services.AchievementEngine
+	dbPath             string
 }
 
 func NewAdminHandler(
@@ -40,6 +43,7 @@ func NewAdminHandler(
 	questStateManager *services.QuestStateManager,
 	achievementService *services.AchievementService,
 	achievementEngine *services.AchievementEngine,
+	dbPath string,
 ) *AdminHandler {
 	return &AdminHandler{
 		bot:                b,
@@ -53,6 +57,7 @@ func NewAdminHandler(
 		questStateManager:  questStateManager,
 		achievementService: achievementService,
 		achievementEngine:  achievementEngine,
+		dbPath:             dbPath,
 	}
 }
 
@@ -111,6 +116,8 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.showQuestStateMenu(ctx, chatID, messageID)
 	case data == "admin:export_steps":
 		h.exportSteps(ctx, chatID, messageID)
+	case data == "admin:backup":
+		h.createBackup(ctx, chatID, messageID)
 	case strings.HasPrefix(data, "admin:quest_state:"):
 		h.handleQuestStateChange(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:move_up:"):
@@ -240,6 +247,7 @@ func (h *AdminHandler) showAdminMenu(ctx context.Context, chatID int64, messageI
 			{{Text: "📤 Экспорт шагов", CallbackData: "admin:export_steps"}},
 			{{Text: "👥 Участники", CallbackData: "admin:users"}},
 			{{Text: "🏆 Достижения", CallbackData: "admin:achievement_stats"}},
+			{{Text: "💾 Бэкап", CallbackData: "admin:backup"}},
 			{{Text: "⚙️ Настройки", CallbackData: "admin:settings"}},
 		},
 	}
@@ -2180,4 +2188,47 @@ func FormatAchievementLeaders(rankings []services.UserAchievementRanking) string
 	}
 
 	return sb.String()
+}
+func (h *AdminHandler) createBackup(ctx context.Context, chatID int64, messageID int) {
+	h.editOrSend(ctx, chatID, messageID, "💾 Создаю бэкап базы данных...", nil)
+
+	backupData, err := h.generateSQLDump()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("⚠️ Ошибка при создании бэкапа: %v", err), nil)
+		return
+	}
+
+	filename := fmt.Sprintf("quest_backup_%s.sql", time.Now().Format("2006-01-02_15-04-05"))
+
+	params := &bot.SendDocumentParams{
+		ChatID: chatID,
+		Document: &tgmodels.InputFileUpload{
+			Filename: filename,
+			Data:     strings.NewReader(backupData),
+		},
+		Caption: fmt.Sprintf("💾 Бэкап базы данных\n📅 Создан: %s", time.Now().Format("02.01.2006 15:04:05")),
+	}
+
+	_, err = h.bot.SendDocument(ctx, params)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("⚠️ Ошибка при отправке файла: %v", err), nil)
+		return
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
+		},
+	}
+
+	h.editOrSend(ctx, chatID, messageID, "✅ Бэкап успешно создан и отправлен", keyboard)
+}
+
+func (h *AdminHandler) generateSQLDump() (string, error) {
+	cmd := exec.Command("sqlite3", h.dbPath, "PRAGMA foreign_keys=OFF;\nBEGIN;\n.dump\nCOMMIT;")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to execute sqlite3 .dump: %w", err)
+	}
+	return string(output), nil
 }

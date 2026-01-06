@@ -106,6 +106,7 @@ func main() {
 		achievementEngine,
 		achievementNotifier,
 		achievementService,
+		dbPath,
 	)
 
 	b.RegisterHandlerMatchFunc(func(update *tgmodels.Update) bool {
