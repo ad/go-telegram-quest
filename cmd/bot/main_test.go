@@ -108,6 +108,7 @@ func TestBotHandlerIntegration(t *testing.T) {
 		achievementEngine,
 		achievementNotifier,
 		achievementService,
+		"",
 	)
 
 	if handler == nil {
@@ -205,6 +206,7 @@ func TestAdminHandlerIntegration(t *testing.T) {
 		questStateManager,
 		achievementService,
 		achievementEngine,
+		"",
 	)
 
 	if adminHandler == nil {

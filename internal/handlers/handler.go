@@ -438,6 +438,16 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		Status: models.StatusApproved,
 	})
 
+	nextStep, _ := h.stepRepo.GetNextActive(step.StepOrder)
+	isLastStep := nextStep == nil
+
+	// Сначала обрабатываем достижения
+	if isLastStep {
+		h.evaluateAchievementsOnQuestCompleted(ctx, userID)
+	} else {
+		h.evaluateAchievementsOnCorrectAnswer(ctx, userID)
+	}
+
 	settings, _ := h.settingsRepo.GetAll()
 	correctMsg := "✅ Правильно!"
 	if settings != nil && settings.CorrectAnswerMessage != "" {
@@ -453,9 +463,6 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		"5104841245755180586", // 🔥
 	}
 	effectID := correctEffects[rand.Intn(len(correctEffects))]
-
-	nextStep, _ := h.stepRepo.GetNextActive(step.StepOrder)
-	isLastStep := nextStep == nil
 
 	if isLastStep {
 		finalMsg := "🎉 Поздравляем! Вы прошли квест!"
@@ -480,7 +487,6 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 
 		h.notifyAdminQuestCompleted(ctx, userID)
 		h.updateStatistics(ctx)
-		h.evaluateAchievementsOnQuestCompleted(ctx, userID)
 		return
 	}
 
@@ -507,12 +513,14 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	}
 
 	h.updateStatistics(ctx)
-	h.evaluateAchievementsOnCorrectAnswer(ctx, userID)
 }
 
 func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOrder int) {
 	nextStep, err := h.stepRepo.GetNextActive(currentOrder)
 	if err != nil || nextStep == nil {
+		// Сначала обрабатываем достижения
+		h.evaluateAchievementsOnQuestCompleted(ctx, userID)
+
 		settings, _ := h.settingsRepo.GetAll()
 		finalMsg := "🎉 Поздравляем! Вы прошли квест!"
 		if settings != nil && settings.FinalMessage != "" {
@@ -526,8 +534,6 @@ func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOr
 		}, "5046509860389126442") // 🎉
 
 		h.notifyAdminQuestCompleted(ctx, userID)
-
-		h.evaluateAchievementsOnQuestCompleted(ctx, userID)
 		return
 	}
 
