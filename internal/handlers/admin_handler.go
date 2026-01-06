@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"os/exec"
@@ -2192,11 +2193,16 @@ func FormatAchievementLeaders(rankings []services.UserAchievementRanking) string
 func (h *AdminHandler) createBackup(ctx context.Context, chatID int64, messageID int) {
 	h.editOrSend(ctx, chatID, messageID, "💾 Создаю бэкап базы данных...", nil)
 
+	log.Printf("[BACKUP] Starting backup for database: %s", h.dbPath)
+
 	backupData, err := h.generateSQLDump()
 	if err != nil {
+		log.Printf("[BACKUP] Backup failed: %v", err)
 		h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("⚠️ Ошибка при создании бэкапа: %v", err), nil)
 		return
 	}
+
+	log.Printf("[BACKUP] Backup generated successfully, size: %d bytes", len(backupData))
 
 	filename := fmt.Sprintf("quest_backup_%s.sql", time.Now().Format("2006-01-02_15-04-05"))
 
@@ -2211,6 +2217,7 @@ func (h *AdminHandler) createBackup(ctx context.Context, chatID int64, messageID
 
 	_, err = h.bot.SendDocument(ctx, params)
 	if err != nil {
+		log.Printf("[BACKUP] Failed to send document: %v", err)
 		h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("⚠️ Ошибка при отправке файла: %v", err), nil)
 		return
 	}
@@ -2225,10 +2232,119 @@ func (h *AdminHandler) createBackup(ctx context.Context, chatID int64, messageID
 }
 
 func (h *AdminHandler) generateSQLDump() (string, error) {
-	cmd := exec.Command("sqlite3", h.dbPath, "PRAGMA foreign_keys=OFF;\nBEGIN;\n.dump\nCOMMIT;")
-	output, err := cmd.Output()
+	// Сначала пробуем sqlite3 .dump
+	cmd := exec.Command("sqlite3", h.dbPath, ".dump")
+	output, err := cmd.CombinedOutput() // Используем CombinedOutput для получения stderr
 	if err != nil {
-		return "", fmt.Errorf("failed to execute sqlite3 .dump: %w", err)
+		// Логируем детали ошибки для диагностики
+		log.Printf("[BACKUP] sqlite3 command failed: %v, output: %s", err, string(output))
+
+		// Если sqlite3 недоступен, используем Go-реализацию
+		return h.generateSQLDumpGo()
 	}
 	return string(output), nil
+}
+
+func (h *AdminHandler) generateSQLDumpGo() (string, error) {
+	sqlDB, err := sql.Open("sqlite", h.dbPath+"?_journal_mode=WAL&_busy_timeout=5000")
+	if err != nil {
+		return "", fmt.Errorf("failed to open database: %w", err)
+	}
+	defer sqlDB.Close()
+
+	var dump strings.Builder
+	dump.WriteString("PRAGMA foreign_keys=OFF;\n")
+	dump.WriteString("BEGIN TRANSACTION;\n\n")
+
+	// Получаем список всех таблиц
+	rows, err := sqlDB.Query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+	if err != nil {
+		return "", fmt.Errorf("failed to get tables: %w", err)
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var tableName string
+		if err := rows.Scan(&tableName); err != nil {
+			return "", err
+		}
+		tables = append(tables, tableName)
+	}
+
+	// Дампим каждую таблицу
+	for _, table := range tables {
+		if err := h.dumpTableGo(sqlDB, &dump, table); err != nil {
+			return "", fmt.Errorf("failed to dump table %s: %w", table, err)
+		}
+	}
+
+	dump.WriteString("COMMIT;\n")
+	return dump.String(), nil
+}
+
+func (h *AdminHandler) dumpTableGo(db *sql.DB, dump *strings.Builder, tableName string) error {
+	// Получаем CREATE TABLE
+	rows, err := db.Query("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", tableName)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	if rows.Next() {
+		var createSQL string
+		if err := rows.Scan(&createSQL); err != nil {
+			return err
+		}
+		if createSQL != "" {
+			dump.WriteString(createSQL + ";\n")
+		}
+	}
+
+	// Получаем данные
+	dataRows, err := db.Query(fmt.Sprintf("SELECT * FROM %s", tableName))
+	if err != nil {
+		return err
+	}
+	defer dataRows.Close()
+
+	columns, err := dataRows.Columns()
+	if err != nil {
+		return err
+	}
+
+	for dataRows.Next() {
+		values := make([]interface{}, len(columns))
+		valuePtrs := make([]interface{}, len(columns))
+		for i := range values {
+			valuePtrs[i] = &values[i]
+		}
+
+		if err := dataRows.Scan(valuePtrs...); err != nil {
+			return err
+		}
+
+		dump.WriteString(fmt.Sprintf("INSERT INTO %s VALUES(", tableName))
+		for i, val := range values {
+			if i > 0 {
+				dump.WriteString(",")
+			}
+			if val == nil {
+				dump.WriteString("NULL")
+			} else {
+				switch v := val.(type) {
+				case string:
+					dump.WriteString(fmt.Sprintf("'%s'", strings.ReplaceAll(v, "'", "''")))
+				case []byte:
+					dump.WriteString(fmt.Sprintf("'%s'", strings.ReplaceAll(string(v), "'", "''")))
+				default:
+					dump.WriteString(fmt.Sprintf("%v", v))
+				}
+			}
+		}
+		dump.WriteString(");\n")
+	}
+
+	dump.WriteString("\n")
+	return nil
 }
