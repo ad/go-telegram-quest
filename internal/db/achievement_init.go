@@ -330,13 +330,12 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "hint_5",
 		Name:        "Подсказочный 5",
-		Description: "Использовать ровно одну подсказку и дать 5 правильных ответов",
+		Description: "Использовать 5 подсказок",
 		Category:    models.CategoryHints,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
-			CorrectAnswers: intPtr(5),
-			HintCount:      intPtr(1),
+			HintCount: intPtr(5),
 		},
 		IsActive: true,
 	})
@@ -344,13 +343,12 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "hint_10",
 		Name:        "Подсказочный 10",
-		Description: "Использовать ровно одну подсказку и дать 10 правильных ответов",
+		Description: "Использовать 10 подсказок",
 		Category:    models.CategoryHints,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
-			CorrectAnswers: intPtr(10),
-			HintCount:      intPtr(1),
+			HintCount: intPtr(10),
 		},
 		IsActive: true,
 	})
@@ -358,13 +356,12 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "hint_15",
 		Name:        "Подсказочный 15",
-		Description: "Использовать ровно одну подсказку и дать 15 правильных ответов",
+		Description: "Использовать 15 подсказок",
 		Category:    models.CategoryHints,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
-			CorrectAnswers: intPtr(15),
-			HintCount:      intPtr(1),
+			HintCount: intPtr(15),
 		},
 		IsActive: true,
 	})
@@ -372,13 +369,12 @@ func getDefaultAchievements() []*models.Achievement {
 	achievements = append(achievements, &models.Achievement{
 		Key:         "hint_25",
 		Name:        "Подсказочный 25",
-		Description: "Использовать ровно одну подсказку и дать 25 правильных ответов",
+		Description: "Использовать 25 подсказок",
 		Category:    models.CategoryHints,
 		Type:        models.TypeActionBased,
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
-			CorrectAnswers: intPtr(25),
-			HintCount:      intPtr(1),
+			HintCount: intPtr(25),
 		},
 		IsActive: true,
 	})

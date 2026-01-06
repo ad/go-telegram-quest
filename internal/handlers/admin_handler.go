@@ -29,6 +29,7 @@ type AdminHandler struct {
 	questStateManager  *services.QuestStateManager
 	achievementService *services.AchievementService
 	achievementEngine  *services.AchievementEngine
+	statsService       *services.StatisticsService
 	dbPath             string
 }
 
@@ -44,6 +45,7 @@ func NewAdminHandler(
 	questStateManager *services.QuestStateManager,
 	achievementService *services.AchievementService,
 	achievementEngine *services.AchievementEngine,
+	statsService *services.StatisticsService,
 	dbPath string,
 ) *AdminHandler {
 	return &AdminHandler{
@@ -58,6 +60,7 @@ func NewAdminHandler(
 		questStateManager:  questStateManager,
 		achievementService: achievementService,
 		achievementEngine:  achievementEngine,
+		statsService:       statsService,
 		dbPath:             dbPath,
 	}
 }
@@ -183,6 +186,8 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.showAchievementStatistics(ctx, chatID, messageID)
 	case strings.HasPrefix(data, "admin:achievement_leaders"):
 		h.showAchievementLeaders(ctx, chatID, messageID)
+	case data == "admin:statistics":
+		h.showStatistics(ctx, chatID, messageID)
 	case data == "admin:step_type:text":
 		h.setStepType(ctx, chatID, messageID, models.AnswerTypeText)
 	case data == "admin:step_type:image":
@@ -249,6 +254,7 @@ func (h *AdminHandler) showAdminMenu(ctx context.Context, chatID int64, messageI
 			{{Text: "👥 Участники", CallbackData: "admin:users"}},
 			{{Text: "🏆 Достижения", CallbackData: "admin:achievement_stats"}},
 			{{Text: "💾 Бэкап", CallbackData: "admin:backup"}},
+			{{Text: "📊 Статистика", CallbackData: "admin:statistics"}},
 			{{Text: "⚙️ Настройки", CallbackData: "admin:settings"}},
 		},
 	}
@@ -2347,4 +2353,39 @@ func (h *AdminHandler) dumpTableGo(db *sql.DB, dump *strings.Builder, tableName 
 
 	dump.WriteString("\n")
 	return nil
+}
+
+func (h *AdminHandler) showStatistics(ctx context.Context, chatID int64, messageID int) {
+	stats, err := h.statsService.CalculateStats()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения статистики", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📊 Статистика квеста\n\n")
+
+	sb.WriteString("📋 Прогресс по шагам:\n")
+	for _, s := range stats.StepStats {
+		sb.WriteString(fmt.Sprintf("  Шаг %d: %d чел.\n", s.StepOrder, s.Count))
+	}
+
+	if len(stats.Leaders) > 0 {
+		sb.WriteString("\n🏆 Лидеры:\n")
+		maxLeaders := 10
+		if len(stats.Leaders) < maxLeaders {
+			maxLeaders = len(stats.Leaders)
+		}
+		for i := 0; i < maxLeaders; i++ {
+			sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, stats.Leaders[i].DisplayName()))
+		}
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
+		},
+	}
+
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
 }

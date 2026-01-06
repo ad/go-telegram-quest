@@ -74,6 +74,15 @@ func main() {
 		log.Fatalf("Failed to create bot: %v", err)
 	}
 
+	botInfo, err := b.GetMe(ctx)
+	if err != nil {
+		log.Fatalf("Failed to get bot info: %v", err)
+	}
+	botUsername := botInfo.Username
+
+	stickerPackRepo := db.NewStickerPackRepository(dbQueue)
+	stickerService := services.NewStickerService(b, stickerPackRepo, botUsername, botToken)
+
 	errorManager := services.NewErrorManager(b, adminID)
 	stateResolver := services.NewStateResolver(stepRepo, progressRepo, userRepo)
 	answerChecker := services.NewAnswerChecker(answerRepo, progressRepo, userRepo)
@@ -82,7 +91,7 @@ func main() {
 	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
 	questStateManager := services.NewQuestStateManager(settingsRepo)
 	achievementEngine := services.NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, dbQueue)
-	achievementNotifier := services.NewAchievementNotifier(b, achievementRepo, msgManager)
+	achievementNotifier := services.NewAchievementNotifier(b, achievementRepo, msgManager, stickerService)
 	achievementService := services.NewAchievementService(achievementRepo, userRepo)
 
 	handler := handlers.NewBotHandler(

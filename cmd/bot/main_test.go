@@ -84,7 +84,7 @@ func TestBotHandlerIntegration(t *testing.T) {
 	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
 	questStateManager := services.NewQuestStateManager(settingsRepo)
 	achievementEngine := services.NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, dbQueue)
-	achievementNotifier := services.NewAchievementNotifier(nil, achievementRepo, msgManager)
+	achievementNotifier := services.NewAchievementNotifier(nil, achievementRepo, msgManager, nil)
 	achievementService := services.NewAchievementService(achievementRepo, userRepo)
 
 	handler := handlers.NewBotHandler(
@@ -206,6 +206,7 @@ func TestAdminHandlerIntegration(t *testing.T) {
 		questStateManager,
 		achievementService,
 		achievementEngine,
+		statsService,
 		"",
 	)
 
@@ -720,7 +721,7 @@ func TestAchievementSystemEndToEnd_NotificationPreparation(t *testing.T) {
 
 	achievementRepo := db.NewAchievementRepository(dbQueue)
 
-	notifier := services.NewAchievementNotifier(nil, achievementRepo, nil)
+	notifier := services.NewAchievementNotifier(nil, achievementRepo, nil, nil)
 
 	notifications, err := notifier.PrepareNotifications([]string{"beginner_5", "experienced_10"})
 	if err != nil {

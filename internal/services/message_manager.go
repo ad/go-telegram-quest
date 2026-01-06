@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"strings"
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
@@ -84,6 +86,12 @@ func (m *MessageManager) SendTaskWithHintButton(ctx context.Context, userID int6
 		return err
 	}
 
+	// Проверяем что текст не пустой
+	stepText := strings.TrimSpace(step.Text)
+	if stepText == "" {
+		stepText = "Задание без текста"
+	}
+
 	var keyboard *tgmodels.InlineKeyboardMarkup
 	if showHintButton && step.HasHint() {
 		keyboard = &tgmodels.InlineKeyboardMarkup{
@@ -101,7 +109,7 @@ func (m *MessageManager) SendTaskWithHintButton(ctx context.Context, userID int6
 	if len(step.Images) == 0 {
 		params := &bot.SendMessageParams{
 			ChatID: userID,
-			Text:   step.Text,
+			Text:   stepText,
 		}
 		if keyboard != nil {
 			params.ReplyMarkup = keyboard
@@ -115,14 +123,26 @@ func (m *MessageManager) SendTaskWithHintButton(ctx context.Context, userID int6
 		params := &bot.SendPhotoParams{
 			ChatID:  userID,
 			Photo:   &tgmodels.InputFileString{Data: step.Images[0].FileID},
-			Caption: step.Text,
+			Caption: stepText,
 		}
 		if keyboard != nil {
 			params.ReplyMarkup = keyboard
 		}
 		msg, err := m.SendPhotoWithRetry(ctx, params)
 		if err != nil {
-			return err
+			log.Printf("[MESSAGE_MANAGER] Failed to send photo for step %d to user %d: %v, sending text instead", step.ID, userID, err)
+			// Если не удалось отправить фото, отправляем текстовое сообщение
+			textParams := &bot.SendMessageParams{
+				ChatID: userID,
+				Text:   stepText,
+			}
+			if keyboard != nil {
+				textParams.ReplyMarkup = keyboard
+			}
+			msg, err = m.SendWithRetry(ctx, textParams)
+			if err != nil {
+				return err
+			}
 		}
 		taskMsgID = msg.ID
 	} else {
@@ -132,7 +152,7 @@ func (m *MessageManager) SendTaskWithHintButton(ctx context.Context, userID int6
 				Media: img.FileID,
 			}
 			if i == 0 {
-				photo.Caption = step.Text
+				photo.Caption = stepText
 			}
 			media[i] = photo
 		}
@@ -141,19 +161,33 @@ func (m *MessageManager) SendTaskWithHintButton(ctx context.Context, userID int6
 			Media:  media,
 		})
 		if err != nil {
-			return err
-		}
-		if len(msgs) > 0 {
-			taskMsgID = msgs[0].ID
-		}
+			log.Printf("[MESSAGE_MANAGER] Failed to send media group for step %d to user %d: %v, sending text instead", step.ID, userID, err)
+			// Если не удалось отправить медиа-группу, отправляем текстовое сообщение
+			textParams := &bot.SendMessageParams{
+				ChatID: userID,
+				Text:   stepText,
+			}
+			if keyboard != nil {
+				textParams.ReplyMarkup = keyboard
+			}
+			msg, err := m.SendWithRetry(ctx, textParams)
+			if err != nil {
+				return err
+			}
+			taskMsgID = msg.ID
+		} else {
+			if len(msgs) > 0 {
+				taskMsgID = msgs[0].ID
+			}
 
-		// Send hint button as separate message for media groups
-		if keyboard != nil {
-			m.SendWithRetry(ctx, &bot.SendMessageParams{
-				ChatID:      userID,
-				Text:        "👆 Ваше задание выше",
-				ReplyMarkup: keyboard,
-			})
+			// Send hint button as separate message for media groups
+			if keyboard != nil {
+				m.SendWithRetry(ctx, &bot.SendMessageParams{
+					ChatID:      userID,
+					Text:        "👆 Ваше задание выше",
+					ReplyMarkup: keyboard,
+				})
+			}
 		}
 	}
 

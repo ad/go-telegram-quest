@@ -151,8 +151,7 @@ func TestAchievementConditionParsing(t *testing.T) {
 		{
 			key: "hint_5",
 			expectedConditions: func(c *models.AchievementConditions) bool {
-				return c.HintCount != nil && *c.HintCount == 1 &&
-					c.CorrectAnswers != nil && *c.CorrectAnswers == 5
+				return c.HintCount != nil && *c.HintCount == 5
 			},
 		},
 		{

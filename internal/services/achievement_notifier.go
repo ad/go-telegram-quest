@@ -14,17 +14,20 @@ type AchievementNotifier struct {
 	bot             *bot.Bot
 	achievementRepo *db.AchievementRepository
 	msgManager      *MessageManager
+	stickerService  *StickerService
 }
 
 func NewAchievementNotifier(
 	b *bot.Bot,
 	achievementRepo *db.AchievementRepository,
 	msgManager *MessageManager,
+	stickerService *StickerService,
 ) *AchievementNotifier {
 	return &AchievementNotifier{
 		bot:             b,
 		achievementRepo: achievementRepo,
 		msgManager:      msgManager,
+		stickerService:  stickerService,
 	}
 }
 
@@ -59,9 +62,9 @@ var achievementEmojis = map[string]string{
 	"curious":         "🤔",
 	"fan":             "❤️",
 	"hint_5":          "💡",
-	"hint_10":         "💡",
-	"hint_15":         "💡",
-	"hint_25":         "💡",
+	"hint_10":         "🔍",
+	"hint_15":         "🔎",
+	"hint_25":         "🧐",
 	"hint_master":     "🧙",
 	"skeptic":         "🤨",
 	"super_collector": "🎁",
@@ -89,14 +92,57 @@ func (n *AchievementNotifier) FormatNotification(achievement *models.Achievement
 	)
 }
 
+func (n *AchievementNotifier) FormatStickerPackMessage(userID int64) string {
+	if n.stickerService == nil {
+		return ""
+	}
+
+	hasPack, err := n.stickerService.HasStickerPack(userID)
+	if err != nil {
+		log.Printf("[ACHIEVEMENT_NOTIFIER] Failed to check sticker pack for user %d: %v", userID, err)
+		return ""
+	}
+
+	if !hasPack {
+		return ""
+	}
+
+	stickerLink := n.stickerService.GetPackLink(userID)
+	return fmt.Sprintf("🎨 Вот стикер-пак со всеми вашими достижениями, вы можете добавить его и поделиться уникальными стикерами: %s", stickerLink)
+}
+
 func (n *AchievementNotifier) NotifyAchievement(ctx context.Context, userID int64, achievementKey string) error {
 	achievement, err := n.achievementRepo.GetByKey(achievementKey)
 	if err != nil {
 		return fmt.Errorf("failed to get achievement %s: %w", achievementKey, err)
 	}
 
+	var stickerFileID string
+	if n.stickerService != nil {
+		emoji := n.GetAchievementEmoji(achievement)
+		stickerFileID, err = n.stickerService.EnsureStickerPack(ctx, userID, achievementKey, emoji)
+		if err != nil {
+			log.Printf("[ACHIEVEMENT_NOTIFIER] Failed to ensure sticker pack for user %d: %v", userID, err)
+		}
+	}
+
 	message := n.FormatNotification(achievement)
-	return n.sendNotification(ctx, userID, message)
+	if err := n.sendNotification(ctx, userID, message); err != nil {
+		return err
+	}
+
+	if stickerFileID != "" && n.stickerService != nil {
+		log.Printf("[ACHIEVEMENT_NOTIFIER] Sending sticker %s to user %d", stickerFileID, userID)
+		if err := n.stickerService.SendSticker(ctx, userID, stickerFileID); err != nil {
+			log.Printf("[ACHIEVEMENT_NOTIFIER] Failed to send sticker to user %d: %v", userID, err)
+		} else {
+			log.Printf("[ACHIEVEMENT_NOTIFIER] Successfully sent sticker to user %d", userID)
+		}
+	} else {
+		log.Printf("[ACHIEVEMENT_NOTIFIER] Not sending sticker: fileID='%s', stickerService=%v", stickerFileID, n.stickerService != nil)
+	}
+
+	return nil
 }
 
 func (n *AchievementNotifier) NotifyAchievements(ctx context.Context, userID int64, achievementKeys []string) error {

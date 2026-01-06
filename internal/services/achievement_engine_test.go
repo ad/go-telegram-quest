@@ -54,10 +54,14 @@ func createTestUserForEngine(t testing.TB, repo *db.UserRepository, id int64) *m
 }
 
 func createTestStep(t testing.TB, repo *db.StepRepository, order int) *models.Step {
+	return createTestStepWithType(t, repo, order, models.AnswerTypeText)
+}
+
+func createTestStepWithType(t testing.TB, repo *db.StepRepository, order int, answerType models.AnswerType) *models.Step {
 	step := &models.Step{
 		StepOrder:    order,
 		Text:         "Test step",
-		AnswerType:   models.AnswerTypeText,
+		AnswerType:   answerType,
 		HasAutoCheck: true,
 		IsActive:     true,
 		IsDeleted:    false,
@@ -832,7 +836,7 @@ func TestProperty9_HintBasedAchievementPatterns(t *testing.T) {
 
 		for _, threshold := range HintThresholds {
 			achievementKey := HintAchievementKeys[threshold]
-			shouldHave := actualHintsUsed == 1 && correctCount >= threshold
+			shouldHave := actualHintsUsed >= threshold
 
 			hasAchievement, err := achievementRepo.HasUserAchievement(userID, achievementKey)
 			if err != nil {
@@ -840,12 +844,12 @@ func TestProperty9_HintBasedAchievementPatterns(t *testing.T) {
 			}
 
 			if shouldHave && !hasAchievement {
-				rt.Errorf("User with %d hints and %d correct answers should have %s (threshold=%d) but doesn't",
-					actualHintsUsed, correctCount, achievementKey, threshold)
+				rt.Errorf("User with %d hints should have %s (threshold=%d) but doesn't",
+					actualHintsUsed, achievementKey, threshold)
 			}
 			if !shouldHave && hasAchievement {
-				rt.Errorf("User with %d hints and %d correct answers should NOT have %s (threshold=%d) but does",
-					actualHintsUsed, correctCount, achievementKey, threshold)
+				rt.Errorf("User with %d hints should NOT have %s (threshold=%d) but does",
+					actualHintsUsed, achievementKey, threshold)
 			}
 		}
 
@@ -929,20 +933,25 @@ func TestProperty10_SpecialActionAchievementDetection(t *testing.T) {
 		numSteps := rapid.IntRange(2, 15).Draw(rt, "numSteps")
 		var steps []*models.Step
 		for i := 1; i <= numSteps; i++ {
-			step := createTestStep(t, stepRepo, i)
+			var step *models.Step
+			if i == 1 {
+				step = createTestStepWithType(t, stepRepo, i, models.AnswerTypeImage)
+			} else {
+				step = createTestStep(t, stepRepo, i)
+			}
 			steps = append(steps, step)
 		}
 
 		userID := int64(rapid.IntRange(1000, 9999).Draw(rt, "userID"))
 		createTestUserForEngine(t, userRepo, userID)
 
-		hasPhotoSubmission := rapid.Bool().Draw(rt, "hasPhotoSubmission")
+		hasPhotoOnImageTask := rapid.Bool().Draw(rt, "hasPhotoOnImageTask")
 		hasPhotoOnTextTask := rapid.Bool().Draw(rt, "hasPhotoOnTextTask")
 		consecutiveCorrect := rapid.IntRange(1, numSteps).Draw(rt, "consecutiveCorrect")
 		hasSecretAnswer := rapid.Bool().Draw(rt, "hasSecretAnswer")
 
 		baseTime := time.Now().Add(-24 * time.Hour)
-		actualPhotoSubmitted := false
+		actualPhotoOnImageTask := false
 		actualPhotoOnTextTask := false
 
 		for i := 0; i < consecutiveCorrect && i < len(steps); i++ {
@@ -950,14 +959,13 @@ func TestProperty10_SpecialActionAchievementDetection(t *testing.T) {
 			createUserProgress(t, progressRepo, userID, steps[i].ID, models.StatusApproved, &completedAt)
 			answerID := createUserAnswerWithID(t, queue, userID, steps[i].ID, "correct answer", false, completedAt)
 
-			if i == 0 && hasPhotoSubmission {
+			if i == 0 && hasPhotoOnImageTask {
 				createAnswerImage(t, queue, answerID)
-				actualPhotoSubmitted = true
+				actualPhotoOnImageTask = true
 			}
 			if i == 1 && hasPhotoOnTextTask && len(steps) > 1 {
 				createAnswerImage(t, queue, answerID)
 				actualPhotoOnTextTask = true
-				actualPhotoSubmitted = true
 			}
 		}
 
@@ -973,11 +981,11 @@ func TestProperty10_SpecialActionAchievementDetection(t *testing.T) {
 		}
 
 		hasPhotographer, _ := achievementRepo.HasUserAchievement(userID, "photographer")
-		if actualPhotoSubmitted && !hasPhotographer {
-			rt.Errorf("User with photo submission should have 'photographer' achievement")
+		if actualPhotoOnImageTask && !hasPhotographer {
+			rt.Errorf("User with photo on image task should have 'photographer' achievement")
 		}
-		if !actualPhotoSubmitted && hasPhotographer {
-			rt.Errorf("User without photo submission should NOT have 'photographer' achievement")
+		if !actualPhotoOnImageTask && hasPhotographer {
+			rt.Errorf("User without photo on image task should NOT have 'photographer' achievement")
 		}
 
 		hasPaparazzi, _ := achievementRepo.HasUserAchievement(userID, "paparazzi")

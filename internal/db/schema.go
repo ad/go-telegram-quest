@@ -121,6 +121,14 @@ CREATE TABLE IF NOT EXISTS user_achievements (
     UNIQUE(user_id, achievement_id)
 );
 
+CREATE TABLE IF NOT EXISTS user_sticker_packs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER UNIQUE NOT NULL REFERENCES users(id),
+    pack_name TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_sticker_packs_user_id ON user_sticker_packs(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_achievements_user_id ON user_achievements(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_achievements_achievement_id ON user_achievements(achievement_id);
 CREATE INDEX IF NOT EXISTS idx_user_achievements_earned_at ON user_achievements(earned_at);

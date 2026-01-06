@@ -58,7 +58,7 @@ func NewBotHandler(
 	achievementService *services.AchievementService,
 	dbPath string,
 ) *BotHandler {
-	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo, questStateManager, achievementService, achievementEngine, dbPath)
+	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo, questStateManager, achievementService, achievementEngine, statsService, dbPath)
 	questStateMiddleware := services.NewQuestStateMiddleware(questStateManager, adminID)
 
 	return &BotHandler{
@@ -425,11 +425,13 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 			})
 		}
 		h.sendToAdminForReview(ctx, userID, step, msg.Text, nil)
-		h.msgManager.SendReaction(ctx, userID, "⏳ Ваш ответ отправлен на проверку")
+		h.msgManager.SendReaction(ctx, userID, "⏳ Ваш ответ отправлен на проверку, подождите пока его проверят.")
 	}
 }
 
 func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step *models.Step, percentage int, textAnswer string) {
+	log.Printf("[HANDLER] handleCorrectAnswer started for user %d, step %d", userID, step.ID)
+
 	h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
 
 	h.progressRepo.Update(&models.UserProgress{
@@ -441,12 +443,16 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	nextStep, _ := h.stepRepo.GetNextActive(step.StepOrder)
 	isLastStep := nextStep == nil
 
+	log.Printf("[HANDLER] Evaluating achievements for user %d, isLastStep=%v", userID, isLastStep)
+
 	// Сначала обрабатываем достижения
 	if isLastStep {
 		h.evaluateAchievementsOnQuestCompleted(ctx, userID)
 	} else {
 		h.evaluateAchievementsOnCorrectAnswer(ctx, userID)
 	}
+
+	log.Printf("[HANDLER] Achievements evaluated, sending correct message to user %d", userID)
 
 	settings, _ := h.settingsRepo.GetAll()
 	correctMsg := "✅ Правильно!"
@@ -469,15 +475,30 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		if settings != nil && settings.FinalMessage != "" {
 			finalMsg = settings.FinalMessage
 		}
+
+		stickerPackMsg := h.achievementNotifier.FormatStickerPackMessage(userID)
+		if stickerPackMsg != "" {
+			finalMsg = finalMsg + "\n\n" + stickerPackMsg
+		}
+
 		correctMsg = correctMsg + "\n\n" + finalMsg
 
 		if step.CorrectAnswerImage != "" {
-			h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
+			log.Printf("[HANDLER] Sending final photo to user %d", userID)
+			_, err := h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
 				ChatID:          userID,
 				Photo:           &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
 				Caption:         correctMsg,
 				MessageEffectID: "5046509860389126442", // 🎉
 			})
+			if err != nil {
+				log.Printf("[HANDLER] Failed to send final photo to user %d: %v, sending text message instead", userID, err)
+				// Если не удалось отправить фото, отправляем текстовое сообщение
+				h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
+					ChatID: userID,
+					Text:   correctMsg,
+				}, "5046509860389126442") // 🎉
+			}
 		} else {
 			h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 				ChatID: userID,
@@ -486,7 +507,6 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		}
 
 		h.notifyAdminQuestCompleted(ctx, userID)
-		h.updateStatistics(ctx)
 		return
 	}
 
@@ -497,14 +517,25 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	}
 
 	if step.CorrectAnswerImage != "" {
-		h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
+		log.Printf("[HANDLER] Sending correct answer photo to user %d", userID)
+		_, err := h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID:          userID,
 			Photo:           &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
 			Caption:         correctMsg,
 			ReplyMarkup:     nextStepBtn,
 			MessageEffectID: effectID,
 		})
+		if err != nil {
+			log.Printf("[HANDLER] Failed to send photo to user %d: %v, sending text message instead", userID, err)
+			// Если не удалось отправить фото, отправляем текстовое сообщение
+			h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
+				ChatID:      userID,
+				Text:        correctMsg,
+				ReplyMarkup: nextStepBtn,
+			}, effectID)
+		}
 	} else {
+		log.Printf("[HANDLER] Sending correct answer message to user %d: %s", userID, correctMsg)
 		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 			ChatID:      userID,
 			Text:        correctMsg,
@@ -512,19 +543,23 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		}, effectID)
 	}
 
-	h.updateStatistics(ctx)
+	log.Printf("[HANDLER] handleCorrectAnswer completed for user %d", userID)
 }
 
 func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOrder int) {
 	nextStep, err := h.stepRepo.GetNextActive(currentOrder)
 	if err != nil || nextStep == nil {
-		// Сначала обрабатываем достижения
 		h.evaluateAchievementsOnQuestCompleted(ctx, userID)
 
 		settings, _ := h.settingsRepo.GetAll()
 		finalMsg := "🎉 Поздравляем! Вы прошли квест!"
 		if settings != nil && settings.FinalMessage != "" {
 			finalMsg = settings.FinalMessage
+		}
+
+		stickerPackMsg := h.achievementNotifier.FormatStickerPackMessage(userID)
+		if stickerPackMsg != "" {
+			finalMsg = finalMsg + "\n\n" + stickerPackMsg
 		}
 
 		h.msgManager.DeletePreviousMessages(ctx, userID)
@@ -924,59 +959,6 @@ func (h *BotHandler) sendToAdminForReview(ctx context.Context, userID int64, ste
 	}
 }
 
-func (h *BotHandler) updateStatistics(ctx context.Context) {
-	stats, err := h.statsService.CalculateStats()
-	if err != nil {
-		return
-	}
-
-	var sb strings.Builder
-	sb.WriteString("📊 Статистика квеста\n\n")
-
-	sb.WriteString("📋 Прогресс по шагам:\n")
-	for _, s := range stats.StepStats {
-		sb.WriteString(fmt.Sprintf("  Шаг %d: %d чел.\n", s.StepOrder, s.Count))
-	}
-
-	if len(stats.Leaders) > 0 {
-		sb.WriteString("\n🏆 Лидеры:\n")
-		maxLeaders := 5
-		if len(stats.Leaders) < maxLeaders {
-			maxLeaders = len(stats.Leaders)
-		}
-		for i := 0; i < maxLeaders; i++ {
-			sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, stats.Leaders[i].DisplayName()))
-		}
-	}
-
-	text := sb.String()
-
-	adminMsg, err := h.adminMessagesRepo.Get("statistics")
-	if err == nil && adminMsg != nil {
-		_, editErr := h.bot.EditMessageText(ctx, &bot.EditMessageTextParams{
-			ChatID:    adminMsg.ChatID,
-			MessageID: adminMsg.MessageID,
-			Text:      text,
-		})
-		if isMessageNotFoundError(editErr) {
-			msg, sendErr := h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
-				ChatID: adminMsg.ChatID,
-				Text:   text,
-			})
-			if sendErr == nil && msg != nil {
-				h.adminMessagesRepo.Set("statistics", adminMsg.ChatID, msg.ID)
-			}
-		}
-	} else {
-		msg, err := h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
-			ChatID: h.adminID,
-			Text:   text,
-		})
-		if err == nil && msg != nil {
-		}
-	}
-}
-
 func (h *BotHandler) handleNextStepCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
 	parts := strings.Split(callback.Data, ":")
 	if len(parts) != 2 {
@@ -1034,14 +1016,27 @@ func (h *BotHandler) handleHintCallback(ctx context.Context, callback *tgmodels.
 }
 
 func (h *BotHandler) sendHintMessage(ctx context.Context, userID int64, step *models.Step) (int, error) {
+	hintText := strings.TrimSpace(step.HintText)
+	if hintText == "" {
+		hintText = "Подсказка без текста"
+	}
+
 	if step.HintImage != "" {
 		msg, err := h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID:  userID,
 			Photo:   &tgmodels.InputFileString{Data: step.HintImage},
-			Caption: step.HintText,
+			Caption: hintText,
 		})
 		if err != nil {
-			return 0, err
+			log.Printf("[HANDLER] Failed to send hint photo to user %d: %v, sending text instead", userID, err)
+			// Если не удалось отправить фото, отправляем текстовое сообщение
+			msg, err = h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+				ChatID: userID,
+				Text:   hintText,
+			})
+			if err != nil {
+				return 0, err
+			}
 		}
 
 		return msg.ID, nil
@@ -1049,7 +1044,7 @@ func (h *BotHandler) sendHintMessage(ctx context.Context, userID int64, step *mo
 
 	msg, err := h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
 		ChatID: userID,
-		Text:   step.HintText,
+		Text:   hintText,
 	})
 	if err != nil {
 		return 0, err

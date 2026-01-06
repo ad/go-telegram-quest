@@ -1078,18 +1078,16 @@ func (e *AchievementEngine) EvaluateHintAchievements(userID int64) ([]string, er
 
 	var awarded []string
 
-	if stats.TotalHintsUsed == 1 {
-		for _, threshold := range HintThresholds {
-			if stats.CorrectAnswers >= threshold {
-				achievementKey := HintAchievementKeys[threshold]
-				wasAwarded, err := e.tryAwardHintAchievement(userID, achievementKey)
-				if err != nil {
-					log.Printf("[ACHIEVEMENT_ENGINE] Error awarding hint achievement %s: %v", achievementKey, err)
-					continue
-				}
-				if wasAwarded {
-					awarded = append(awarded, achievementKey)
-				}
+	for _, threshold := range HintThresholds {
+		if stats.TotalHintsUsed >= threshold {
+			achievementKey := HintAchievementKeys[threshold]
+			wasAwarded, err := e.tryAwardHintAchievement(userID, achievementKey)
+			if err != nil {
+				log.Printf("[ACHIEVEMENT_ENGINE] Error awarding hint achievement %s: %v", achievementKey, err)
+				continue
+			}
+			if wasAwarded {
+				awarded = append(awarded, achievementKey)
 			}
 		}
 	}
@@ -1210,7 +1208,8 @@ func (e *AchievementEngine) checkPhotoSubmitted(userID int64) (bool, error) {
 		err := db.QueryRow(`
 			SELECT COUNT(*) FROM answer_images ai
 			JOIN user_answers ua ON ai.answer_id = ua.id
-			WHERE ua.user_id = ?
+			JOIN steps s ON ua.step_id = s.id
+			WHERE ua.user_id = ? AND s.answer_type = 'image'
 		`, userID).Scan(&count)
 		return count > 0, err
 	})
@@ -1427,19 +1426,19 @@ func (e *AchievementEngine) tryAwardSpecialAchievement(userID int64, achievement
 func (e *AchievementEngine) OnPhotoSubmitted(userID int64, isTextTask bool) ([]string, error) {
 	var awarded []string
 
-	photographerAwarded, err := e.tryAwardSpecialAchievement(userID, "photographer")
-	if err != nil {
-		log.Printf("[ACHIEVEMENT_ENGINE] Error awarding photographer: %v", err)
-	} else if photographerAwarded {
-		awarded = append(awarded, "photographer")
-	}
-
 	if isTextTask {
 		paparazziAwarded, err := e.tryAwardSpecialAchievement(userID, "paparazzi")
 		if err != nil {
 			log.Printf("[ACHIEVEMENT_ENGINE] Error awarding paparazzi: %v", err)
 		} else if paparazziAwarded {
 			awarded = append(awarded, "paparazzi")
+		}
+	} else {
+		photographerAwarded, err := e.tryAwardSpecialAchievement(userID, "photographer")
+		if err != nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Error awarding photographer: %v", err)
+		} else if photographerAwarded {
+			awarded = append(awarded, "photographer")
 		}
 	}
 

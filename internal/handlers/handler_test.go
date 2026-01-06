@@ -1175,7 +1175,7 @@ func TestAchievementIntegration_NotificationDelivery(t *testing.T) {
 			rt.Fatal(err)
 		}
 
-		notifier := services.NewAchievementNotifier(nil, achievementRepo, nil)
+		notifier := services.NewAchievementNotifier(nil, achievementRepo, nil, nil)
 
 		notifications, err := notifier.PrepareNotifications([]string{"test_achievement"})
 		if err != nil {
