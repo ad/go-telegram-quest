@@ -672,7 +672,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 			return
 		}
 
-		h.editCallbackMessage(ctx, callback, "✅ Ответ одобрен")
+		h.appendToCallbackMessage(ctx, callback, "\n\n✅ Ответ одобрен")
 
 		userAnswer, _ := h.answerRepo.GetUserAnswer(userID, stepID)
 		log.Printf("[CALLBACK] userID=%d stepID=%d userAnswer='%s'", userID, stepID, userAnswer)
@@ -687,7 +687,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 			return
 		}
 
-		h.editCallbackMessage(ctx, callback, "❌ Ответ отклонён")
+		h.appendToCallbackMessage(ctx, callback, "\n\n❌ Ответ отклонён")
 
 		h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
 		settings, _ := h.settingsRepo.GetAll()
@@ -799,6 +799,46 @@ func (h *BotHandler) editCallbackMessage(ctx context.Context, callback *tgmodels
 			})
 		}
 	} else {
+		_, err := h.bot.EditMessageText(ctx, &bot.EditMessageTextParams{
+			ChatID:    msg.Chat.ID,
+			MessageID: msg.ID,
+			Text:      newText,
+		})
+		if isMessageNotFoundError(err) {
+			h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+				ChatID: msg.Chat.ID,
+				Text:   newText,
+			})
+		}
+	}
+}
+
+func (h *BotHandler) appendToCallbackMessage(ctx context.Context, callback *tgmodels.CallbackQuery, appendText string) {
+	msg := callback.Message.Message
+	if msg == nil {
+		return
+	}
+
+	if len(msg.Photo) > 0 {
+		currentCaption := msg.Caption
+		newCaption := currentCaption + appendText
+
+		_, err := h.bot.EditMessageCaption(ctx, &bot.EditMessageCaptionParams{
+			ChatID:    msg.Chat.ID,
+			MessageID: msg.ID,
+			Caption:   newCaption,
+		})
+		if isMessageNotFoundError(err) {
+			h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
+				ChatID:  msg.Chat.ID,
+				Photo:   &tgmodels.InputFileString{Data: msg.Photo[len(msg.Photo)-1].FileID},
+				Caption: newCaption,
+			})
+		}
+	} else {
+		currentText := msg.Text
+		newText := currentText + appendText
+
 		_, err := h.bot.EditMessageText(ctx, &bot.EditMessageTextParams{
 			ChatID:    msg.Chat.ID,
 			MessageID: msg.ID,
