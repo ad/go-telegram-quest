@@ -326,7 +326,7 @@ func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion
 			ORDER BY step_order
 		`)
 		if err == nil {
-			log.Printf("[ACHIEVEMENT_ENGINE] All steps in database:")
+			// log.Printf("[ACHIEVEMENT_ENGINE] All steps in database:")
 			for debugRows.Next() {
 				var stepID, stepOrder int
 				var isActive, isDeleted bool
@@ -335,8 +335,7 @@ func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion
 					if len(text) > 30 {
 						text = text[:30] + "..."
 					}
-					log.Printf("[ACHIEVEMENT_ENGINE] Step %d (order %d): active=%v, deleted=%v, text='%s'",
-						stepID, stepOrder, isActive, isDeleted, text)
+					// log.Printf("[ACHIEVEMENT_ENGINE] Step %d (order %d): active=%v, deleted=%v, text='%s'", stepID, stepOrder, isActive, isDeleted, text)
 				}
 			}
 			debugRows.Close()
@@ -353,7 +352,7 @@ func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion
 		if err != nil || !maxStepOrder.Valid {
 			return []UserCompletion{}, nil
 		}
-		log.Printf("[ACHIEVEMENT_ENGINE] Max active non-deleted step order: %d", maxStepOrder.Int64)
+		// log.Printf("[ACHIEVEMENT_ENGINE] Max active non-deleted step order: %d", maxStepOrder.Int64)
 
 		// Get users who completed the last step (quest completion)
 		rows, err := db.Query(`
@@ -391,9 +390,9 @@ func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion
 			}
 			u.CompletionTime = parsedTime
 			users = append(users, u)
-			log.Printf("[ACHIEVEMENT_ENGINE] Found completed user: %d at %v", u.UserID, u.CompletionTime)
+			// log.Printf("[ACHIEVEMENT_ENGINE] Found completed user: %d at %v", u.UserID, u.CompletionTime)
 		}
-		log.Printf("[ACHIEVEMENT_ENGINE] Total users who completed quest: %d", len(users))
+		// log.Printf("[ACHIEVEMENT_ENGINE] Total users who completed quest: %d", len(users))
 		return users, rows.Err()
 	})
 	if err != nil {
