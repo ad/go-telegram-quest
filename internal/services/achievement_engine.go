@@ -325,6 +325,7 @@ func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion
 		if err != nil {
 			return nil, err
 		}
+		log.Printf("[ACHIEVEMENT_ENGINE] Total active steps: %d", totalSteps)
 
 		// Get users who completed all steps, ordered by their last correct answer timestamp
 		rows, err := db.Query(`
@@ -359,7 +360,9 @@ func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion
 			}
 			u.CompletionTime = parsedTime
 			users = append(users, u)
+			log.Printf("[ACHIEVEMENT_ENGINE] Found completed user: %d at %v", u.UserID, u.CompletionTime)
 		}
+		log.Printf("[ACHIEVEMENT_ENGINE] Total users who completed quest: %d", len(users))
 		return users, rows.Err()
 	})
 	if err != nil {
@@ -451,15 +454,19 @@ func (e *AchievementEngine) evaluateConditionsWithTimestamp(userID int64, achiev
 		if err != nil {
 			return false, time.Time{}, err
 		}
+		log.Printf("[ACHIEVEMENT_ENGINE] Checking CompletionPosition %d for user %d, found %d completed users", *conditions.CompletionPosition, userID, len(completedUsers))
 
 		position := *conditions.CompletionPosition
 		if position > len(completedUsers) {
+			log.Printf("[ACHIEVEMENT_ENGINE] Position %d > completed users count %d", position, len(completedUsers))
 			return false, time.Time{}, nil
 		}
 
 		if completedUsers[position-1].UserID != userID {
+			log.Printf("[ACHIEVEMENT_ENGINE] User %d is not at position %d (actual user: %d)", userID, position, completedUsers[position-1].UserID)
 			return false, time.Time{}, nil
 		}
+		log.Printf("[ACHIEVEMENT_ENGINE] User %d qualifies for CompletionPosition %d", userID, position)
 		earnedAt = completedUsers[position-1].CompletionTime
 	}
 
