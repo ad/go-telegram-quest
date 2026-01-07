@@ -1325,11 +1325,6 @@ func (h *AdminHandler) handleResetFromDetails(ctx context.Context, chatID int64,
 		return
 	}
 
-	if err := h.achievementService.ResetUserAchievements(userID); err != nil {
-		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при сбросе достижений", nil)
-		return
-	}
-
 	if h.achievementEngine != nil {
 		if _, err := h.achievementEngine.RecalculatePositionAchievements(); err != nil {
 			log.Printf("[ADMIN] Error recalculating position achievements: %v", err)
