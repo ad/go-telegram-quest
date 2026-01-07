@@ -153,7 +153,7 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 	// Errors section
 	result += "❌ Ошибки по шагам:\n"
 	if len(stats.StepAttempts) == 0 {
-		result += "• Все шаги с первой попытки! 🎉\n"
+		// result += "• Все шаги с первой попытки! 🎉\n"
 	} else {
 		for _, attempt := range stats.StepAttempts {
 			result += fmt.Sprintf("• Шаг %d: %d попыток\n", attempt.StepOrder, attempt.Attempts)
@@ -177,8 +177,12 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 
 	// Participation section
 	result += "📅 Участие:\n"
-	result += fmt.Sprintf("• Регистрация: %s\n", FormatDateTime(stats.RegistrationDate))
-	result += fmt.Sprintf("• В квесте: %s\n", FormatTimeAgo(stats.RegistrationDate))
+	result += fmt.Sprintf("• Регистрация: %s (%s)\n", FormatDateTime(stats.RegistrationDate), FormatTimeAgo(stats.RegistrationDate))
+	if stats.LastAnswerTime != nil {
+		result += fmt.Sprintf("• Последний ответ: %s (%s)\n", FormatDateTime(*stats.LastAnswerTime), FormatTimeAgo(*stats.LastAnswerTime))
+	} else {
+		result += "• Последний ответ: —\n"
+	}
 
 	return result
 }
