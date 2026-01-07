@@ -18,19 +18,20 @@ import (
 )
 
 type AdminHandler struct {
-	bot                *bot.Bot
-	adminID            int64
-	stepRepo           *db.StepRepository
-	answerRepo         *db.AnswerRepository
-	settingsRepo       *db.SettingsRepository
-	adminStateRepo     *db.AdminStateRepository
-	userManager        *services.UserManager
-	userRepo           *db.UserRepository
-	questStateManager  *services.QuestStateManager
-	achievementService *services.AchievementService
-	achievementEngine  *services.AchievementEngine
-	statsService       *services.StatisticsService
-	dbPath             string
+	bot                 *bot.Bot
+	adminID             int64
+	stepRepo            *db.StepRepository
+	answerRepo          *db.AnswerRepository
+	settingsRepo        *db.SettingsRepository
+	adminStateRepo      *db.AdminStateRepository
+	userManager         *services.UserManager
+	userRepo            *db.UserRepository
+	questStateManager   *services.QuestStateManager
+	achievementService  *services.AchievementService
+	achievementEngine   *services.AchievementEngine
+	achievementNotifier *services.AchievementNotifier
+	statsService        *services.StatisticsService
+	dbPath              string
 }
 
 func NewAdminHandler(
@@ -45,23 +46,25 @@ func NewAdminHandler(
 	questStateManager *services.QuestStateManager,
 	achievementService *services.AchievementService,
 	achievementEngine *services.AchievementEngine,
+	achievementNotifier *services.AchievementNotifier,
 	statsService *services.StatisticsService,
 	dbPath string,
 ) *AdminHandler {
 	return &AdminHandler{
-		bot:                b,
-		adminID:            adminID,
-		stepRepo:           stepRepo,
-		answerRepo:         answerRepo,
-		settingsRepo:       settingsRepo,
-		adminStateRepo:     adminStateRepo,
-		userManager:        userManager,
-		userRepo:           userRepo,
-		questStateManager:  questStateManager,
-		achievementService: achievementService,
-		achievementEngine:  achievementEngine,
-		statsService:       statsService,
-		dbPath:             dbPath,
+		bot:                 b,
+		adminID:             adminID,
+		stepRepo:            stepRepo,
+		answerRepo:          answerRepo,
+		settingsRepo:        settingsRepo,
+		adminStateRepo:      adminStateRepo,
+		userManager:         userManager,
+		userRepo:            userRepo,
+		questStateManager:   questStateManager,
+		achievementService:  achievementService,
+		achievementEngine:   achievementEngine,
+		achievementNotifier: achievementNotifier,
+		statsService:        statsService,
+		dbPath:              dbPath,
 	}
 }
 
@@ -1427,6 +1430,10 @@ func (h *AdminHandler) handleManualAchievementAward(ctx context.Context, chatID 
 	}
 
 	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("✅ Достижение \"%s\" присвоено пользователю", achievementName), nil)
+
+	// Отправляем уведомление пользователю
+	h.notifyAchievements(ctx, chatID, []string{achievementKey})
+
 	h.showUserAchievements(ctx, chatID, 0, fmt.Sprintf("user_achievements:%d", userID))
 }
 
@@ -2515,4 +2522,14 @@ func (h *AdminHandler) showStatistics(ctx context.Context, chatID int64, message
 	}
 
 	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
+}
+
+func (h *AdminHandler) notifyAchievements(ctx context.Context, userID int64, achievementKeys []string) {
+	if h.achievementNotifier == nil || len(achievementKeys) == 0 {
+		return
+	}
+
+	if err := h.achievementNotifier.NotifyAchievements(ctx, userID, achievementKeys); err != nil {
+		log.Printf("[ADMIN] Error notifying achievements: %v", err)
+	}
 }

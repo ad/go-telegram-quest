@@ -206,6 +206,7 @@ func TestAdminHandlerIntegration(t *testing.T) {
 		questStateManager,
 		achievementService,
 		achievementEngine,
+		nil, // achievementNotifier
 		statsService,
 		"",
 	)
