@@ -437,7 +437,7 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 	}
 }
 
-func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step *models.Step, percentage int, textAnswer string) {
+func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step *models.Step, percentage int, _ string) {
 	// log.Printf("[HANDLER] handleCorrectAnswer started for user %d, step %d", userID, step.ID)
 
 	h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
