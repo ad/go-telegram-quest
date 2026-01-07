@@ -1432,7 +1432,7 @@ func (h *AdminHandler) handleManualAchievementAward(ctx context.Context, chatID 
 	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("✅ Достижение \"%s\" присвоено пользователю", achievementName), nil)
 
 	// Отправляем уведомление пользователю
-	h.notifyAchievements(ctx, chatID, []string{achievementKey})
+	h.notifyAchievements(ctx, userID, []string{achievementKey})
 
 	h.showUserAchievements(ctx, chatID, 0, fmt.Sprintf("user_achievements:%d", userID))
 }
