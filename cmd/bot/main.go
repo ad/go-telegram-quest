@@ -66,17 +66,33 @@ func main() {
 	defer cancel()
 
 	httpClient := &http.Client{
-		Timeout: 65 * time.Second,
+		Timeout: 30 * time.Second,
 	}
 
-	b, err := bot.New(botToken, bot.WithHTTPClient(60*time.Second, httpClient))
+	b, err := bot.New(botToken, bot.WithHTTPClient(15*time.Second, httpClient))
 	if err != nil {
 		log.Fatalf("Failed to create bot: %v", err)
 	}
 
-	botInfo, err := b.GetMe(ctx)
+	// Retry getMe with shorter timeout
+	var botInfo *tgmodels.User
+	for i := 0; i < 3; i++ {
+		log.Printf("Attempting to connect to Telegram API (attempt %d/3)...", i+1)
+		getMeCtx, getMeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		botInfo, err = b.GetMe(getMeCtx)
+		getMeCancel()
+		if err == nil {
+			log.Printf("Successfully connected to Telegram API")
+			break
+		}
+		log.Printf("Failed to get bot info (attempt %d/3): %v", i+1, err)
+		if i < 2 {
+			log.Printf("Retrying in 2 seconds...")
+			time.Sleep(2 * time.Second)
+		}
+	}
 	if err != nil {
-		log.Fatalf("Failed to get bot info: %v", err)
+		log.Fatalf("Failed to get bot info after 3 attempts: %v", err)
 	}
 	botUsername := botInfo.Username
 
