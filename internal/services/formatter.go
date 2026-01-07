@@ -107,28 +107,6 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 
 	result := "📊 Статистика прохождения:\n\n"
 
-	// Time section
-	result += "⏱️ Время:\n"
-	if stats.FirstAnswerTime != nil {
-		result += fmt.Sprintf("• Первый ответ: %s\n", FormatDateTime(*stats.FirstAnswerTime))
-	} else {
-		result += "• Первый ответ: —\n"
-	}
-
-	if stats.LastAnswerTime != nil {
-		result += fmt.Sprintf("• Последний ответ: %s\n", FormatDateTime(*stats.LastAnswerTime))
-	} else {
-		result += "• Последний ответ: —\n"
-	}
-
-	if stats.CompletionTime != nil {
-		result += fmt.Sprintf("• Общее время: %s\n", FormatDurationRussian(*stats.CompletionTime))
-	} else {
-		result += "• Общее время: —\n"
-	}
-
-	result += "\n"
-
 	// Accuracy section
 	result += "🎯 Точность:\n"
 	result += fmt.Sprintf("• Всего ответов: %d\n", stats.TotalAnswers)
@@ -151,10 +129,10 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 	result += "\n"
 
 	// Errors section
-	result += "❌ Ошибки по шагам:\n"
 	if len(stats.StepAttempts) == 0 {
 		// result += "• Все шаги с первой попытки! 🎉\n"
 	} else {
+		result += "❌ Ошибки по шагам:\n"
 		for _, attempt := range stats.StepAttempts {
 			result += fmt.Sprintf("• Шаг %d: %d попыток\n", attempt.StepOrder, attempt.Attempts)
 		}
@@ -178,10 +156,22 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 	// Participation section
 	result += "📅 Участие:\n"
 	result += fmt.Sprintf("• Регистрация: %s (%s)\n", FormatDateTime(stats.RegistrationDate), FormatTimeAgo(stats.RegistrationDate))
+	if stats.FirstAnswerTime != nil {
+		result += fmt.Sprintf("• Первый ответ: %s\n", FormatDateTime(*stats.FirstAnswerTime))
+	} else {
+		result += "• Первый ответ: —\n"
+	}
+
 	if stats.LastAnswerTime != nil {
-		result += fmt.Sprintf("• Последний ответ: %s (%s)\n", FormatDateTime(*stats.LastAnswerTime), FormatTimeAgo(*stats.LastAnswerTime))
+		result += fmt.Sprintf("• Последний ответ: %s\n", FormatDateTime(*stats.LastAnswerTime))
 	} else {
 		result += "• Последний ответ: —\n"
+	}
+
+	if stats.CompletionTime != nil {
+		result += fmt.Sprintf("• Общее время: %s\n", FormatDurationRussian(*stats.CompletionTime))
+	} else {
+		result += "• Общее время: —\n"
 	}
 
 	return result
