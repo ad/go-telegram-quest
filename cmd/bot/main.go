@@ -109,6 +109,7 @@ func main() {
 	questStateManager := services.NewQuestStateManager(settingsRepo)
 	achievementNotifier := services.NewAchievementNotifier(b, achievementRepo, msgManager, stickerService)
 	achievementService := services.NewAchievementService(achievementRepo, userRepo)
+	retroactiveProcessor := services.NewRetroactiveProcessor(achievementEngine, achievementRepo, userRepo)
 
 	handler := handlers.NewBotHandler(
 		b,
@@ -139,6 +140,19 @@ func main() {
 	}, handler.HandleUpdate, logMiddleware)
 
 	log.Printf("Bot started. Admin ID: %d, DB: %s", adminID, dbPath)
+
+	// Process retroactive winner achievements
+	go func() {
+		log.Printf("Starting retroactive processing for winner achievements...")
+		for _, achievementKey := range []string{"winner_1", "winner_2", "winner_3", "hint_30", "writer"} {
+			if _, err := retroactiveProcessor.ProcessAchievementSync(achievementKey, 50); err != nil {
+				log.Printf("Failed to process retroactive achievement %s: %v", achievementKey, err)
+			} else {
+				log.Printf("Successfully processed retroactive achievement: %s", achievementKey)
+			}
+		}
+	}()
+
 	b.Start(ctx)
 }
 

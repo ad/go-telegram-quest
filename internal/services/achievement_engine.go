@@ -446,6 +446,23 @@ func (e *AchievementEngine) evaluateConditionsWithTimestamp(userID int64, achiev
 		earnedAt = usersWithFirstAnswer[position-1].FirstCorrectAnswerTime
 	}
 
+	if conditions.CompletionPosition != nil {
+		completedUsers, err := e.getUsersOrderedByQuestCompletion()
+		if err != nil {
+			return false, time.Time{}, err
+		}
+
+		position := *conditions.CompletionPosition
+		if position > len(completedUsers) {
+			return false, time.Time{}, nil
+		}
+
+		if completedUsers[position-1].UserID != userID {
+			return false, time.Time{}, nil
+		}
+		earnedAt = completedUsers[position-1].CompletionTime
+	}
+
 	if len(conditions.RequiredAchievements) > 0 {
 		var latestAchievementTime time.Time
 		for _, reqKey := range conditions.RequiredAchievements {
@@ -476,7 +493,130 @@ func (e *AchievementEngine) evaluateConditionsWithTimestamp(userID int64, achiev
 		}
 	}
 
+	if conditions.HintCount != nil {
+		count, timestamp, err := e.getHintCountWithTimestamp(userID, *conditions.HintCount)
+		if err != nil {
+			return false, time.Time{}, err
+		}
+		if count < *conditions.HintCount {
+			return false, time.Time{}, nil
+		}
+		if !timestamp.IsZero() {
+			earnedAt = timestamp
+		}
+	}
+
+	if conditions.TextOnImageTask != nil && *conditions.TextOnImageTask {
+		hasTextOnImage, timestamp, err := e.hasTextOnImageTaskWithTimestamp(userID)
+		if err != nil {
+			return false, time.Time{}, err
+		}
+		if !hasTextOnImage {
+			return false, time.Time{}, nil
+		}
+		if !timestamp.IsZero() {
+			earnedAt = timestamp
+		}
+	}
+
 	return true, earnedAt, nil
+}
+
+func (e *AchievementEngine) getHintCountWithTimestamp(userID int64, threshold int) (int, time.Time, error) {
+	result, err := e.queue.Execute(func(db *sql.DB) (any, error) {
+		rows, err := db.Query(`
+			SELECT created_at
+			FROM user_answers 
+			WHERE user_id = ? AND hint_used = 1
+			ORDER BY created_at ASC
+		`, userID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var timestamps []time.Time
+		for rows.Next() {
+			var createdAtStr string
+			if err := rows.Scan(&createdAtStr); err != nil {
+				return nil, err
+			}
+			parsedTime, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", createdAtStr)
+			if err != nil {
+				parsedTime, err = time.Parse("2006-01-02T15:04:05Z", createdAtStr)
+				if err != nil {
+					parsedTime, err = time.Parse("2006-01-02 15:04:05", createdAtStr)
+					if err != nil {
+						parsedTime, _ = time.Parse(time.RFC3339, createdAtStr)
+					}
+				}
+			}
+			timestamps = append(timestamps, parsedTime)
+		}
+		return timestamps, rows.Err()
+	})
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+
+	timestamps := result.([]time.Time)
+	count := len(timestamps)
+
+	var earnedAt time.Time
+	if count >= threshold && threshold > 0 {
+		earnedAt = timestamps[threshold-1]
+	}
+
+	return count, earnedAt, nil
+}
+
+func (e *AchievementEngine) hasTextOnImageTaskWithTimestamp(userID int64) (bool, time.Time, error) {
+	result, err := e.queue.Execute(func(db *sql.DB) (any, error) {
+		rows, err := db.Query(`
+			SELECT ua.created_at
+			FROM user_answers ua
+			JOIN steps s ON ua.step_id = s.id
+			WHERE ua.user_id = ? 
+			AND s.answer_type = 'image' 
+			AND ua.text_answer IS NOT NULL 
+			AND ua.text_answer != ''
+			ORDER BY ua.created_at ASC
+			LIMIT 1
+		`, userID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		if rows.Next() {
+			var createdAtStr string
+			if err := rows.Scan(&createdAtStr); err != nil {
+				return nil, err
+			}
+			parsedTime, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", createdAtStr)
+			if err != nil {
+				parsedTime, err = time.Parse("2006-01-02T15:04:05Z", createdAtStr)
+				if err != nil {
+					parsedTime, err = time.Parse("2006-01-02 15:04:05", createdAtStr)
+					if err != nil {
+						parsedTime, _ = time.Parse(time.RFC3339, createdAtStr)
+					}
+				}
+			}
+			return &parsedTime, nil
+		}
+		return nil, nil
+	})
+	if err != nil {
+		return false, time.Time{}, err
+	}
+
+	if result == nil {
+		return false, time.Time{}, nil
+	}
+
+	timestamp := result.(*time.Time)
+	return true, *timestamp, nil
 }
 
 func (e *AchievementEngine) getCorrectAnswersCount(userID int64) (int, error) {
