@@ -319,70 +319,49 @@ func (e *AchievementEngine) getUsersOrderedByFirstCorrectAnswer() ([]UserFirstAn
 
 func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion, error) {
 	result, err := e.queue.Execute(func(db *sql.DB) (any, error) {
-		// Get total number of active steps
-		var totalSteps int
-		err := db.QueryRow("SELECT COUNT(*) FROM steps WHERE is_active = 1").Scan(&totalSteps)
-		if err != nil {
-			return nil, err
-		}
-		log.Printf("[ACHIEVEMENT_ENGINE] Total active steps: %d", totalSteps)
-
-		// Get users who completed all steps, ordered by their last correct answer timestamp
-		// First, let's debug what we have in the database
+		// Debug: check all steps in database
 		debugRows, err := db.Query(`
-			SELECT p.user_id, COUNT(*) as completed_steps
-			FROM user_progress p
-			WHERE p.status = 'approved' AND p.completed_at IS NOT NULL
-			GROUP BY p.user_id
-			ORDER BY completed_steps DESC
+			SELECT id, step_order, is_active, is_deleted, text
+			FROM steps 
+			ORDER BY step_order
 		`)
 		if err == nil {
-			log.Printf("[ACHIEVEMENT_ENGINE] Debug - User progress counts:")
+			log.Printf("[ACHIEVEMENT_ENGINE] All steps in database:")
 			for debugRows.Next() {
-				var userID int64
-				var count int
-				if err := debugRows.Scan(&userID, &count); err == nil {
-					log.Printf("[ACHIEVEMENT_ENGINE] User %d has %d completed steps", userID, count)
+				var stepID, stepOrder int
+				var isActive, isDeleted bool
+				var text string
+				if err := debugRows.Scan(&stepID, &stepOrder, &isActive, &isDeleted, &text); err == nil {
+					if len(text) > 30 {
+						text = text[:30] + "..."
+					}
+					log.Printf("[ACHIEVEMENT_ENGINE] Step %d (order %d): active=%v, deleted=%v, text='%s'",
+						stepID, stepOrder, isActive, isDeleted, text)
 				}
 			}
 			debugRows.Close()
 		}
 
-		// Check which steps are missing for user 622942844
-		missingRows, err := db.Query(`
-			SELECT s.id, s.step_order, s.text
-			FROM steps s
-			WHERE s.is_active = 1 
-			AND s.id NOT IN (
-				SELECT p.step_id 
-				FROM user_progress p 
-				WHERE p.user_id = 622942844 AND p.status = 'approved'
-			)
-			ORDER BY s.step_order
-		`)
-		if err == nil {
-			log.Printf("[ACHIEVEMENT_ENGINE] Missing steps for user 622942844:")
-			for missingRows.Next() {
-				var stepID, stepOrder int
-				var text string
-				if err := missingRows.Scan(&stepID, &stepOrder, &text); err == nil {
-					if len(text) > 50 {
-						text = text[:50]
-					}
-					log.Printf("[ACHIEVEMENT_ENGINE] Missing step %d (order %d): %s", stepID, stepOrder, text)
-				}
-			}
-			missingRows.Close()
+		// Get the highest step order that is active and not deleted
+		var maxStepOrder int
+		err = db.QueryRow("SELECT MAX(step_order) FROM steps WHERE is_active = 1 AND (is_deleted = 0 OR is_deleted IS NULL)").Scan(&maxStepOrder)
+		if err != nil {
+			return nil, err
 		}
+		log.Printf("[ACHIEVEMENT_ENGINE] Max active non-deleted step order: %d", maxStepOrder)
 
+		// Get users who completed the last step (quest completion)
 		rows, err := db.Query(`
-			SELECT p.user_id, MAX(p.completed_at) as completion_time
+			SELECT p.user_id, p.completed_at
 			FROM user_progress p
-			WHERE p.status = 'approved' AND p.completed_at IS NOT NULL
-			GROUP BY p.user_id
-			HAVING COUNT(*) = ?
-			ORDER BY completion_time ASC
-		`, totalSteps)
+			JOIN steps s ON p.step_id = s.id
+			WHERE p.status = 'approved' 
+			AND p.completed_at IS NOT NULL
+			AND s.step_order = ?
+			AND s.is_active = 1
+			AND (s.is_deleted = 0 OR s.is_deleted IS NULL)
+			ORDER BY p.completed_at ASC
+		`, maxStepOrder)
 		if err != nil {
 			return nil, err
 		}
