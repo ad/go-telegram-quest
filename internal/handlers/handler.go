@@ -829,39 +829,39 @@ func (h *BotHandler) handleBlockUser(ctx context.Context, callback *tgmodels.Cal
 	})
 }
 
-func (h *BotHandler) editCallbackMessage(ctx context.Context, callback *tgmodels.CallbackQuery, newText string) {
-	msg := callback.Message.Message
-	if msg == nil {
-		return
-	}
+// func (h *BotHandler) editCallbackMessage(ctx context.Context, callback *tgmodels.CallbackQuery, newText string) {
+// 	msg := callback.Message.Message
+// 	if msg == nil {
+// 		return
+// 	}
 
-	if len(msg.Photo) > 0 {
-		_, err := h.bot.EditMessageCaption(ctx, &bot.EditMessageCaptionParams{
-			ChatID:    msg.Chat.ID,
-			MessageID: msg.ID,
-			Caption:   newText,
-		})
-		if isMessageNotFoundError(err) {
-			h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
-				ChatID:  msg.Chat.ID,
-				Photo:   &tgmodels.InputFileString{Data: msg.Photo[len(msg.Photo)-1].FileID},
-				Caption: newText,
-			})
-		}
-	} else {
-		_, err := h.bot.EditMessageText(ctx, &bot.EditMessageTextParams{
-			ChatID:    msg.Chat.ID,
-			MessageID: msg.ID,
-			Text:      newText,
-		})
-		if isMessageNotFoundError(err) {
-			h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
-				ChatID: msg.Chat.ID,
-				Text:   newText,
-			})
-		}
-	}
-}
+// 	if len(msg.Photo) > 0 {
+// 		_, err := h.bot.EditMessageCaption(ctx, &bot.EditMessageCaptionParams{
+// 			ChatID:    msg.Chat.ID,
+// 			MessageID: msg.ID,
+// 			Caption:   newText,
+// 		})
+// 		if isMessageNotFoundError(err) {
+// 			h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
+// 				ChatID:  msg.Chat.ID,
+// 				Photo:   &tgmodels.InputFileString{Data: msg.Photo[len(msg.Photo)-1].FileID},
+// 				Caption: newText,
+// 			})
+// 		}
+// 	} else {
+// 		_, err := h.bot.EditMessageText(ctx, &bot.EditMessageTextParams{
+// 			ChatID:    msg.Chat.ID,
+// 			MessageID: msg.ID,
+// 			Text:      newText,
+// 		})
+// 		if isMessageNotFoundError(err) {
+// 			h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+// 				ChatID: msg.Chat.ID,
+// 				Text:   newText,
+// 			})
+// 		}
+// 	}
+// }
 
 func (h *BotHandler) appendToCallbackMessage(ctx context.Context, callback *tgmodels.CallbackQuery, appendText string) {
 	msg := callback.Message.Message
