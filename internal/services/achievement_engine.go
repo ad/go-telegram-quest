@@ -328,6 +328,26 @@ func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion
 		log.Printf("[ACHIEVEMENT_ENGINE] Total active steps: %d", totalSteps)
 
 		// Get users who completed all steps, ordered by their last correct answer timestamp
+		// First, let's debug what we have in the database
+		debugRows, err := db.Query(`
+			SELECT p.user_id, COUNT(*) as completed_steps
+			FROM user_progress p
+			WHERE p.status = 'approved' AND p.completed_at IS NOT NULL
+			GROUP BY p.user_id
+			ORDER BY completed_steps DESC
+		`)
+		if err == nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Debug - User progress counts:")
+			for debugRows.Next() {
+				var userID int64
+				var count int
+				if err := debugRows.Scan(&userID, &count); err == nil {
+					log.Printf("[ACHIEVEMENT_ENGINE] User %d has %d completed steps", userID, count)
+				}
+			}
+			debugRows.Close()
+		}
+
 		rows, err := db.Query(`
 			SELECT p.user_id, MAX(p.completed_at) as completion_time
 			FROM user_progress p
