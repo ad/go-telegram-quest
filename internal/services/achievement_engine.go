@@ -343,12 +343,17 @@ func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion
 		}
 
 		// Get the highest step order that is active and not deleted
-		var maxStepOrder int
-		err = db.QueryRow("SELECT MAX(step_order) FROM steps WHERE is_active = 1 AND (is_deleted = 0 OR is_deleted IS NULL)").Scan(&maxStepOrder)
-		if err != nil {
-			return nil, err
+		var maxStepOrder sql.NullInt64
+		err = db.QueryRow(`
+			SELECT MAX(s.step_order) 
+			FROM steps s 
+			WHERE s.is_active = 1 
+			AND (s.is_deleted = 0 OR s.is_deleted IS NULL)
+		`).Scan(&maxStepOrder)
+		if err != nil || !maxStepOrder.Valid {
+			return []UserCompletion{}, nil
 		}
-		log.Printf("[ACHIEVEMENT_ENGINE] Max active non-deleted step order: %d", maxStepOrder)
+		log.Printf("[ACHIEVEMENT_ENGINE] Max active non-deleted step order: %d", maxStepOrder.Int64)
 
 		// Get users who completed the last step (quest completion)
 		rows, err := db.Query(`
@@ -361,7 +366,7 @@ func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion
 			AND s.is_active = 1
 			AND (s.is_deleted = 0 OR s.is_deleted IS NULL)
 			ORDER BY p.completed_at ASC
-		`, maxStepOrder)
+		`, maxStepOrder.Int64)
 		if err != nil {
 			return nil, err
 		}
@@ -480,19 +485,15 @@ func (e *AchievementEngine) evaluateConditionsWithTimestamp(userID int64, achiev
 		if err != nil {
 			return false, time.Time{}, err
 		}
-		log.Printf("[ACHIEVEMENT_ENGINE] Checking CompletionPosition %d for user %d, found %d completed users", *conditions.CompletionPosition, userID, len(completedUsers))
 
 		position := *conditions.CompletionPosition
 		if position > len(completedUsers) {
-			log.Printf("[ACHIEVEMENT_ENGINE] Position %d > completed users count %d", position, len(completedUsers))
 			return false, time.Time{}, nil
 		}
 
 		if completedUsers[position-1].UserID != userID {
-			log.Printf("[ACHIEVEMENT_ENGINE] User %d is not at position %d (actual user: %d)", userID, position, completedUsers[position-1].UserID)
 			return false, time.Time{}, nil
 		}
-		log.Printf("[ACHIEVEMENT_ENGINE] User %d qualifies for CompletionPosition %d", userID, position)
 		earnedAt = completedUsers[position-1].CompletionTime
 	}
 
@@ -2388,4 +2389,7 @@ func (e *AchievementEngine) RecalculatePositionAchievements() (map[string]int64,
 	}
 
 	return awarded, nil
+}
+func (e *AchievementEngine) ResetUserAchievements(userID int64) error {
+	return e.achievementRepo.DeleteUserAchievements(userID)
 }

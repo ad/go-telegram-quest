@@ -180,6 +180,8 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.handleUnblockFromDetails(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "reset:"):
 		h.handleResetFromDetails(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "reset_achievements:"):
+		h.handleResetAchievementsFromDetails(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "user_achievements:"):
 		h.showUserAchievements(ctx, chatID, messageID, data)
 	case data == "admin:achievement_stats":
@@ -1281,6 +1283,7 @@ func BuildUserDetailsKeyboard(user *models.User) *tgmodels.InlineKeyboardMarkup 
 			{{Text: "🏆 Достижения", CallbackData: fmt.Sprintf("user_achievements:%d", user.ID)}},
 			{blockBtn},
 			{{Text: "🔄 Сбросить прогресс", CallbackData: fmt.Sprintf("reset:%d", user.ID)}},
+			{{Text: "🏅 Сбросить достижения", CallbackData: fmt.Sprintf("reset_achievements:%d", user.ID)}},
 			{{Text: "⬅️ Назад", CallbackData: "admin:userlist"}},
 		},
 	}
@@ -1332,6 +1335,30 @@ func (h *AdminHandler) handleResetFromDetails(ctx context.Context, chatID int64,
 	}
 
 	h.editOrSend(ctx, chatID, messageID, "✅ Прогресс и достижения пользователя сброшены", nil)
+	h.showUserDetails(ctx, chatID, 0, fmt.Sprintf("user:%d", userID))
+}
+
+func (h *AdminHandler) handleResetAchievementsFromDetails(ctx context.Context, chatID int64, messageID int, data string) {
+	userID, _ := parseInt64(strings.TrimPrefix(data, "reset_achievements:"))
+	if userID == 0 {
+		return
+	}
+
+	if h.achievementEngine == nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Система достижений недоступна", nil)
+		return
+	}
+
+	if err := h.achievementEngine.ResetUserAchievements(userID); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при сбросе достижений", nil)
+		return
+	}
+
+	if _, err := h.achievementEngine.RecalculatePositionAchievements(); err != nil {
+		log.Printf("[ADMIN] Error recalculating position achievements: %v", err)
+	}
+
+	h.editOrSend(ctx, chatID, messageID, "✅ Достижения пользователя сброшены", nil)
 	h.showUserDetails(ctx, chatID, 0, fmt.Sprintf("user:%d", userID))
 }
 
