@@ -76,6 +76,9 @@ var achievementEmojis = map[string]string{
 	"winner_3":        "🥉",
 	"restart":         "🔄",
 	"writer":          "✍️",
+	"veteran":         "🛡️",
+	"activity":        "🪩",
+	"wow":             "💎",
 }
 
 func (n *AchievementNotifier) GetAchievementEmoji(achievement *models.Achievement) string {

@@ -523,14 +523,14 @@ func TestProperty21_BlockButtonConditionalDisplay(t *testing.T) {
 			IsBlocked: isBlocked,
 		}
 
-		keyboard := BuildUserDetailsKeyboard(user)
+		keyboard := BuildUserDetailsKeyboard(user, true)
 
 		if keyboard == nil {
 			rt.Fatal("Keyboard should not be nil")
 		}
 
-		if len(keyboard.InlineKeyboard) < 4 {
-			rt.Fatal("Keyboard should have at least 4 rows")
+		if len(keyboard.InlineKeyboard) < 5 {
+			rt.Fatal("Keyboard should have at least 5 rows")
 		}
 
 		// Row 0: Achievements button
@@ -581,8 +581,20 @@ func TestProperty21_BlockButtonConditionalDisplay(t *testing.T) {
 			rt.Errorf("Expected reset callback 'reset:%d', got '%s'", userID, resetRow[0].CallbackData)
 		}
 
-		// Row 3: Back button
-		backRow := keyboard.InlineKeyboard[3]
+		// Row 3: Reset achievements button
+		resetAchievementsRow := keyboard.InlineKeyboard[3]
+		if len(resetAchievementsRow) != 1 {
+			rt.Fatalf("Reset achievements row should have exactly 1 button, got %d", len(resetAchievementsRow))
+		}
+		if resetAchievementsRow[0].Text != "🏅 Сбросить достижения" {
+			rt.Errorf("Expected reset achievements button text '🏅 Сбросить достижения', got '%s'", resetAchievementsRow[0].Text)
+		}
+		if !containsUserID(resetAchievementsRow[0].CallbackData, "reset_achievements:", userID) {
+			rt.Errorf("Expected reset achievements callback 'reset_achievements:%d', got '%s'", userID, resetAchievementsRow[0].CallbackData)
+		}
+
+		// Row 4: Back button
+		backRow := keyboard.InlineKeyboard[4]
 		if len(backRow) != 1 {
 			rt.Fatalf("Back row should have exactly 1 button, got %d", len(backRow))
 		}

@@ -184,6 +184,8 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.handleResetAchievementsFromDetails(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "user_achievements:"):
 		h.showUserAchievements(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "award:"):
+		h.handleManualAchievementAward(ctx, chatID, messageID, data)
 	case data == "admin:achievement_stats":
 		h.showAchievementStatistics(ctx, chatID, messageID)
 	case strings.HasPrefix(data, "admin:achievement_leaders"):
@@ -1214,7 +1216,7 @@ func (h *AdminHandler) showUserDetails(ctx context.Context, chatID int64, messag
 	}
 
 	text := FormatUserDetails(details)
-	keyboard := BuildUserDetailsKeyboard(details.User)
+	keyboard := BuildUserDetailsKeyboard(details.User, true) // Always true since this is in AdminHandler
 	h.editOrSend(ctx, chatID, messageID, text, keyboard)
 }
 
@@ -1270,22 +1272,42 @@ func FormatUserDetails(details *services.UserDetails) string {
 	return sb.String()
 }
 
-func BuildUserDetailsKeyboard(user *models.User) *tgmodels.InlineKeyboardMarkup {
-	var blockBtn tgmodels.InlineKeyboardButton
-	if user.IsBlocked {
-		blockBtn = tgmodels.InlineKeyboardButton{Text: "✅ Разблокировать", CallbackData: fmt.Sprintf("unblock:%d", user.ID)}
-	} else {
-		blockBtn = tgmodels.InlineKeyboardButton{Text: "🚫 Заблокировать", CallbackData: fmt.Sprintf("block:%d", user.ID)}
+func BuildUserDetailsKeyboard(user *models.User, isAdmin bool) *tgmodels.InlineKeyboardMarkup {
+	var buttons [][]tgmodels.InlineKeyboardButton
+
+	// Only show admin functions if user has admin privileges
+	if isAdmin {
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "🏆 Достижения", CallbackData: fmt.Sprintf("user_achievements:%d", user.ID)},
+		})
+
+		// Block/unblock button
+		var blockBtn tgmodels.InlineKeyboardButton
+		if user.IsBlocked {
+			blockBtn = tgmodels.InlineKeyboardButton{Text: "✅ Разблокировать", CallbackData: fmt.Sprintf("unblock:%d", user.ID)}
+		} else {
+			blockBtn = tgmodels.InlineKeyboardButton{Text: "🚫 Заблокировать", CallbackData: fmt.Sprintf("block:%d", user.ID)}
+		}
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{blockBtn})
+
+		// Reset button
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "🔄 Сбросить прогресс", CallbackData: fmt.Sprintf("reset:%d", user.ID)},
+		})
+
+		// Reset achievements button (separate row)
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "🏅 Сбросить достижения", CallbackData: fmt.Sprintf("reset_achievements:%d", user.ID)},
+		})
 	}
 
+	// Back button - always shown
+	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+		{Text: "⬅️ Назад", CallbackData: "admin:userlist"},
+	})
+
 	return &tgmodels.InlineKeyboardMarkup{
-		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
-			{{Text: "🏆 Достижения", CallbackData: fmt.Sprintf("user_achievements:%d", user.ID)}},
-			{blockBtn},
-			{{Text: "🔄 Сбросить прогресс", CallbackData: fmt.Sprintf("reset:%d", user.ID)}},
-			{{Text: "🏅 Сбросить достижения", CallbackData: fmt.Sprintf("reset_achievements:%d", user.ID)}},
-			{{Text: "⬅️ Назад", CallbackData: "admin:userlist"}},
-		},
+		InlineKeyboard: buttons,
 	}
 }
 
@@ -1360,6 +1382,52 @@ func (h *AdminHandler) handleResetAchievementsFromDetails(ctx context.Context, c
 
 	h.editOrSend(ctx, chatID, messageID, "✅ Достижения пользователя сброшены", nil)
 	h.showUserDetails(ctx, chatID, 0, fmt.Sprintf("user:%d", userID))
+}
+
+func (h *AdminHandler) handleManualAchievementAward(ctx context.Context, chatID int64, messageID int, data string) {
+	// Verify caller has admin privileges - additional security check
+	// Note: This is already checked in HandleCallback, but we add it here for defense in depth
+	if chatID != h.adminID {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Недостаточно прав для выполнения операции", nil)
+		return
+	}
+
+	parts := strings.Split(data, ":")
+	if len(parts) != 3 {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Неверный формат данных", nil)
+		return
+	}
+
+	achievementKey := parts[1]
+	userID, err := parseInt64(parts[2])
+	if err != nil || userID == 0 {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Неверный ID пользователя", nil)
+		return
+	}
+
+	if h.achievementEngine == nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Система достижений недоступна", nil)
+		return
+	}
+
+	if err := h.achievementEngine.AwardManualAchievement(userID, achievementKey, h.adminID); err != nil {
+		h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("⚠️ Ошибка при присвоении достижения: %v", err), nil)
+		return
+	}
+
+	achievementNames := map[string]string{
+		"veteran":  "Ветеран игр",
+		"activity": "За активность",
+		"wow":      "Вау! За отличный ответ",
+	}
+
+	achievementName := achievementNames[achievementKey]
+	if achievementName == "" {
+		achievementName = achievementKey
+	}
+
+	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("✅ Достижение \"%s\" присвоено пользователю", achievementName), nil)
+	h.showUserAchievements(ctx, chatID, 0, fmt.Sprintf("user_achievements:%d", userID))
 }
 
 func (h *AdminHandler) showQuestStateMenu(ctx context.Context, chatID int64, messageID int) {
@@ -2018,6 +2086,12 @@ func (h *AdminHandler) formatStepForExport(step *models.Step) string {
 }
 
 func (h *AdminHandler) showUserAchievements(ctx context.Context, chatID int64, messageID int, data string) {
+	// Verify caller has admin privileges - additional security check
+	if chatID != h.adminID {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Недостаточно прав для выполнения операции", nil)
+		return
+	}
+
 	userID, _ := parseInt64(strings.TrimPrefix(data, "user_achievements:"))
 	if userID == 0 {
 		return
@@ -2042,10 +2116,41 @@ func (h *AdminHandler) showUserAchievements(ctx context.Context, chatID int64, m
 
 	text := FormatUserAchievements(user, summary)
 
+	// Создаём кнопки для ручных достижений, которые ещё не выданы - только для админов
+	var buttons [][]tgmodels.InlineKeyboardButton
+
+	manualAchievements := []struct {
+		key   string
+		name  string
+		emoji string
+	}{
+		{"veteran", "Ветеран", "🛡️"},
+		{"activity", "Активность", "🪩"},
+		{"wow", "Вау", "💎"},
+	}
+
+	for _, achievement := range manualAchievements {
+		hasAchievement, err := h.achievementService.HasUserAchievement(userID, achievement.key)
+		if err != nil {
+			continue // Пропускаем при ошибке
+		}
+
+		if !hasAchievement {
+			button := tgmodels.InlineKeyboardButton{
+				Text:         fmt.Sprintf("%s %s", achievement.emoji, achievement.name),
+				CallbackData: fmt.Sprintf("award:%s:%d", achievement.key, userID),
+			}
+			buttons = append(buttons, []tgmodels.InlineKeyboardButton{button})
+		}
+	}
+
+	// Добавляем кнопку "Назад"
+	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+		{Text: "⬅️ Назад к пользователю", CallbackData: fmt.Sprintf("user:%d", userID)},
+	})
+
 	keyboard := &tgmodels.InlineKeyboardMarkup{
-		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
-			{{Text: "⬅️ Назад к пользователю", CallbackData: fmt.Sprintf("user:%d", userID)}},
-		},
+		InlineKeyboard: buttons,
 	}
 
 	h.editOrSend(ctx, chatID, messageID, text, keyboard)

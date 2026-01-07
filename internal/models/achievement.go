@@ -24,6 +24,7 @@ const (
 	TypeActionBased   AchievementType = "action_based"
 	TypeComposite     AchievementType = "composite"
 	TypeUnique        AchievementType = "unique"
+	TypeManual        AchievementType = "manual"
 )
 
 type AchievementConditions struct {
@@ -45,6 +46,7 @@ type AchievementConditions struct {
 	CompletionPosition    *int     `json:"completion_position,omitempty"`
 	ProgressReset         *bool    `json:"progress_reset,omitempty"`
 	TextOnImageTask       *bool    `json:"text_on_image_task,omitempty"`
+	ManualAward           *bool    `json:"manual_award,omitempty"`
 }
 
 func (c *AchievementConditions) ToJSON() (string, error) {

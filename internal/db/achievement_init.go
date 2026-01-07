@@ -556,6 +556,46 @@ func getDefaultAchievements() []*models.Achievement {
 		IsActive: true,
 	})
 
+	// Manual achievements (awarded by admin)
+	achievements = append(achievements, &models.Achievement{
+		Key:         "veteran",
+		Name:        "Ветеран игр",
+		Description: "Опытный участник конкурсов",
+		Category:    models.CategorySpecial,
+		Type:        models.TypeManual,
+		IsUnique:    false,
+		Conditions: models.AchievementConditions{
+			ManualAward: boolPtr(true),
+		},
+		IsActive: true,
+	})
+
+	achievements = append(achievements, &models.Achievement{
+		Key:         "activity",
+		Name:        "За активность",
+		Description: "За активное участие в сообществе",
+		Category:    models.CategorySpecial,
+		Type:        models.TypeManual,
+		IsUnique:    false,
+		Conditions: models.AchievementConditions{
+			ManualAward: boolPtr(true),
+		},
+		IsActive: true,
+	})
+
+	achievements = append(achievements, &models.Achievement{
+		Key:         "wow",
+		Name:        "Вау! За отличный ответ",
+		Description: "За особенно креативный или интересный ответ",
+		Category:    models.CategorySpecial,
+		Type:        models.TypeManual,
+		IsUnique:    false,
+		Conditions: models.AchievementConditions{
+			ManualAward: boolPtr(true),
+		},
+		IsActive: true,
+	})
+
 	// Composite achievements
 	achievements = append(achievements, &models.Achievement{
 		Key:         "super_collector",

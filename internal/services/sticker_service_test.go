@@ -89,3 +89,24 @@ func TestReadEmbeddedSticker(t *testing.T) {
 		t.Errorf("Sticker data seems too small: %d bytes", len(data))
 	}
 }
+
+func TestProperty7_StickerEmojiCorrectness(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		manualAchievements := []string{"veteran", "activity", "wow"}
+		expectedEmojis := map[string]string{
+			"veteran":  "🛡️",
+			"activity": "🪩",
+			"wow":      "💎",
+		}
+
+		achievementKey := rapid.SampledFrom(manualAchievements).Draw(rt, "achievementKey")
+
+		service := &StickerService{}
+		actualEmoji := service.getAchievementEmoji(achievementKey)
+		expectedEmoji := expectedEmojis[achievementKey]
+
+		if actualEmoji != expectedEmoji {
+			rt.Fatalf("For achievement %s, expected emoji %s but got %s", achievementKey, expectedEmoji, actualEmoji)
+		}
+	})
+}

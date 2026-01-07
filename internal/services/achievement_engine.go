@@ -2,6 +2,7 @@ package services
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 	"strings"
 	"sync"
@@ -2283,6 +2284,45 @@ func (e *AchievementEngine) EvaluateRetroactiveCompositeAchievements(achievement
 	}
 
 	return awardedUsers, nil
+}
+
+func (e *AchievementEngine) AwardManualAchievement(userID int64, achievementKey string, adminID int64) error {
+	achievement, err := e.achievementRepo.GetByKey(achievementKey)
+	if err != nil {
+		return err
+	}
+
+	if achievement.Type != models.TypeManual {
+		return fmt.Errorf("achievement %s is not a manual achievement", achievementKey)
+	}
+
+	if achievement.Conditions.ManualAward == nil || !*achievement.Conditions.ManualAward {
+		return fmt.Errorf("achievement %s is not configured for manual award", achievementKey)
+	}
+
+	err = e.achievementRepo.AssignToUser(userID, achievement.ID, time.Now(), false)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("[ACHIEVEMENT_ENGINE] Admin %d manually awarded achievement %s to user %d", adminID, achievementKey, userID)
+	return nil
+}
+
+func (e *AchievementEngine) GetManualAchievements() ([]*models.Achievement, error) {
+	achievements, err := e.achievementRepo.GetActive()
+	if err != nil {
+		return nil, err
+	}
+
+	var manualAchievements []*models.Achievement
+	for _, achievement := range achievements {
+		if achievement.Type == models.TypeManual {
+			manualAchievements = append(manualAchievements, achievement)
+		}
+	}
+
+	return manualAchievements, nil
 }
 
 func (e *AchievementEngine) OnProgressReset(userID int64) ([]string, error) {
