@@ -472,7 +472,7 @@ func TestAchievementSystemEndToEnd_DefaultAchievementsInitialization(t *testing.
 		"pioneer", "second_place", "third_place",
 		"beginner_5", "experienced_10", "advanced_15", "expert_20", "master_25",
 		"winner", "perfect_path", "self_sufficient", "lightning", "rocket", "cheater",
-		"hint_5", "hint_10", "hint_15", "hint_25", "hint_master", "skeptic",
+		"hint_5", "hint_10", "hint_15", "hint_25", "hint_30", "hint_master", "skeptic",
 		"photographer", "bullseye", "secret_agent", "curious", "paparazzi", "fan",
 		"super_collector", "super_brain", "legend",
 	}

@@ -1011,6 +1011,7 @@ var HintAchievementKeys = map[int]string{
 	10: "hint_10",
 	15: "hint_15",
 	25: "hint_25",
+	30: "hint_30",
 }
 
 var HintThresholds = []int{5, 10, 15, 25}

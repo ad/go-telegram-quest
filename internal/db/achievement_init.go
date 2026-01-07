@@ -373,6 +373,19 @@ func getDefaultAchievements() []*models.Achievement {
 	})
 
 	achievements = append(achievements, &models.Achievement{
+		Key:         "hint_30",
+		Name:        "Подсказочный 30",
+		Description: "Использовать 30 подсказок",
+		Category:    models.CategoryHints,
+		Type:        models.TypeActionBased,
+		IsUnique:    false,
+		Conditions: models.AchievementConditions{
+			HintCount: intPtr(30),
+		},
+		IsActive: true,
+	})
+
+	achievements = append(achievements, &models.Achievement{
 		Key:         "hint_master",
 		Name:        "Мастер Подсказок",
 		Description: "Использовать все доступные подсказки в квесте",

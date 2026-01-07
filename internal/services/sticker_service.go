@@ -285,6 +285,7 @@ func (s *StickerService) getAchievementEmoji(achievementKey string) string {
 		"hint_10":         "🔍",
 		"hint_15":         "🔎",
 		"hint_25":         "🧐",
+		"hint_30":         "🔮",
 		"hint_master":     "🧙",
 		"skeptic":         "🤨",
 		"super_collector": "🎁",

@@ -53,6 +53,7 @@ func TestInitializeDefaultAchievements(t *testing.T) {
 		"hint_10":         {"Подсказочный 10", models.CategoryHints, false, false},
 		"hint_15":         {"Подсказочный 15", models.CategoryHints, false, false},
 		"hint_25":         {"Подсказочный 25", models.CategoryHints, false, false},
+		"hint_30":         {"Подсказочный 30", models.CategoryHints, false, false},
 		"hint_master":     {"Мастер Подсказок", models.CategoryHints, false, false},
 		"skeptic":         {"Скептик", models.CategoryHints, false, false},
 		"photographer":    {"Фотограф", models.CategorySpecial, false, false},
