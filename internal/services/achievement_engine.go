@@ -348,6 +348,33 @@ func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion
 			debugRows.Close()
 		}
 
+		// Check which steps are missing for user 622942844
+		missingRows, err := db.Query(`
+			SELECT s.id, s.step_order, s.text
+			FROM steps s
+			WHERE s.is_active = 1 
+			AND s.id NOT IN (
+				SELECT p.step_id 
+				FROM user_progress p 
+				WHERE p.user_id = 622942844 AND p.status = 'approved'
+			)
+			ORDER BY s.step_order
+		`)
+		if err == nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Missing steps for user 622942844:")
+			for missingRows.Next() {
+				var stepID, stepOrder int
+				var text string
+				if err := missingRows.Scan(&stepID, &stepOrder, &text); err == nil {
+					if len(text) > 50 {
+						text = text[:50]
+					}
+					log.Printf("[ACHIEVEMENT_ENGINE] Missing step %d (order %d): %s", stepID, stepOrder, text)
+				}
+			}
+			missingRows.Close()
+		}
+
 		rows, err := db.Query(`
 			SELECT p.user_id, MAX(p.completed_at) as completion_time
 			FROM user_progress p
