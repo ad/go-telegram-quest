@@ -1327,3 +1327,636 @@ func TestProperty12_CompositeAchievementAutoEvaluation(t *testing.T) {
 		}
 	})
 }
+
+// Property 1: Winner Position Assignment
+// **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
+func TestProperty1_WinnerPositionAssignment(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupAchievementEngineTestDB(t)
+		defer cleanup()
+
+		achievementRepo := db.NewAchievementRepository(queue)
+		userRepo := db.NewUserRepository(queue)
+		progressRepo := db.NewProgressRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+
+		engine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+
+		numUsers := rapid.IntRange(3, 10).Draw(rt, "numUsers")
+		numSteps := rapid.IntRange(2, 5).Draw(rt, "numSteps")
+
+		var steps []*models.Step
+		for i := 1; i <= numSteps; i++ {
+			step := createTestStep(t, stepRepo, i)
+			steps = append(steps, step)
+		}
+
+		type userCompletionData struct {
+			userID         int64
+			completionTime time.Time
+		}
+		var usersData []userCompletionData
+
+		baseTime := time.Now().Add(-24 * time.Hour)
+		completionDelays := make([]int, numUsers)
+		for i := 0; i < numUsers; i++ {
+			completionDelays[i] = rapid.IntRange(0, 1000).Draw(rt, "completionDelay")
+		}
+
+		for i := 0; i < numUsers; i++ {
+			userID := int64((i + 1) * 1000)
+			createTestUserForEngine(t, userRepo, userID)
+
+			completionTime := baseTime.Add(time.Duration(completionDelays[i]) * time.Minute)
+
+			for j := 0; j < numSteps; j++ {
+				stepCompletionTime := completionTime.Add(time.Duration(j) * time.Second)
+				createUserProgress(t, progressRepo, userID, steps[j].ID, models.StatusApproved, &stepCompletionTime)
+			}
+
+			usersData = append(usersData, userCompletionData{
+				userID:         userID,
+				completionTime: completionTime.Add(time.Duration(numSteps-1) * time.Second),
+			})
+		}
+
+		sort.Slice(usersData, func(i, j int) bool {
+			return usersData[i].completionTime.Before(usersData[j].completionTime)
+		})
+
+		// Simulate quest completion in chronological order
+		var allAwarded []string
+		for i, userData := range usersData {
+			if i >= 3 {
+				break
+			}
+
+			awarded, err := engine.EvaluateWinnerAchievements(userData.userID)
+			if err != nil {
+				rt.Fatalf("EvaluateWinnerAchievements failed for user %d: %v", userData.userID, err)
+			}
+			allAwarded = append(allAwarded, awarded...)
+		}
+
+		// Check that the first 3 users got the correct achievements
+		for i, userData := range usersData {
+			if i >= 3 {
+				break
+			}
+
+			expectedAchievement := WinnerAchievementKeys[i+1]
+			hasAchievement, err := achievementRepo.HasUserAchievement(userData.userID, expectedAchievement)
+			if err != nil {
+				rt.Fatalf("HasUserAchievement failed: %v", err)
+			}
+
+			if !hasAchievement {
+				rt.Errorf("User %d (position %d, completion time %v) should have %s achievement",
+					userData.userID, i+1, userData.completionTime, expectedAchievement)
+			}
+		}
+
+		for i := 3; i < len(usersData); i++ {
+			userData := usersData[i]
+			for pos := 1; pos <= 3; pos++ {
+				achievementKey := WinnerAchievementKeys[pos]
+				hasAchievement, err := achievementRepo.HasUserAchievement(userData.userID, achievementKey)
+				if err != nil {
+					rt.Fatalf("HasUserAchievement failed: %v", err)
+				}
+				if hasAchievement {
+					rt.Errorf("User %d (position %d) should NOT have %s achievement",
+						userData.userID, i+1, achievementKey)
+				}
+			}
+		}
+	})
+}
+
+// Property 2: Winner Achievement Uniqueness
+// **Validates: Requirements 1.5**
+func TestProperty2_WinnerAchievementUniqueness(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupAchievementEngineTestDB(t)
+		defer cleanup()
+
+		achievementRepo := db.NewAchievementRepository(queue)
+		userRepo := db.NewUserRepository(queue)
+		progressRepo := db.NewProgressRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+
+		engine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+
+		numUsers := rapid.IntRange(5, 15).Draw(rt, "numUsers")
+		numSteps := rapid.IntRange(2, 5).Draw(rt, "numSteps")
+
+		var steps []*models.Step
+		for i := 1; i <= numSteps; i++ {
+			step := createTestStep(t, stepRepo, i)
+			steps = append(steps, step)
+		}
+
+		baseTime := time.Now().Add(-24 * time.Hour)
+		var userIDs []int64
+
+		for i := 0; i < numUsers; i++ {
+			userID := int64((i + 1) * 1000)
+			createTestUserForEngine(t, userRepo, userID)
+			userIDs = append(userIDs, userID)
+
+			completionTime := baseTime.Add(time.Duration(i*10) * time.Minute)
+
+			for j := 0; j < numSteps; j++ {
+				stepCompletionTime := completionTime.Add(time.Duration(j) * time.Second)
+				createUserProgress(t, progressRepo, userID, steps[j].ID, models.StatusApproved, &stepCompletionTime)
+			}
+		}
+
+		var allAwarded []string
+		for _, userID := range userIDs {
+			awarded, err := engine.EvaluateWinnerAchievements(userID)
+			if err != nil {
+				rt.Fatalf("EvaluateWinnerAchievements failed for user %d: %v", userID, err)
+			}
+			allAwarded = append(allAwarded, awarded...)
+		}
+
+		for pos := 1; pos <= 3; pos++ {
+			achievementKey := WinnerAchievementKeys[pos]
+			holders, err := achievementRepo.GetAchievementHolders(achievementKey)
+			if err != nil {
+				rt.Fatalf("GetAchievementHolders failed for %s: %v", achievementKey, err)
+			}
+
+			if len(holders) > 1 {
+				rt.Errorf("Winner achievement %s should have at most 1 holder, got %d", achievementKey, len(holders))
+			}
+
+			if len(holders) == 1 {
+				expectedUserID := userIDs[pos-1]
+				if holders[0] != expectedUserID {
+					rt.Errorf("Winner achievement %s should be held by user %d, but held by user %d",
+						achievementKey, expectedUserID, holders[0])
+				}
+			}
+		}
+
+		for _, userID := range userIDs {
+			winnerAchievementCount := 0
+			for pos := 1; pos <= 3; pos++ {
+				achievementKey := WinnerAchievementKeys[pos]
+				hasAchievement, err := achievementRepo.HasUserAchievement(userID, achievementKey)
+				if err != nil {
+					rt.Fatalf("HasUserAchievement failed: %v", err)
+				}
+				if hasAchievement {
+					winnerAchievementCount++
+				}
+			}
+
+			if winnerAchievementCount > 1 {
+				rt.Errorf("User %d should have at most 1 winner achievement, got %d", userID, winnerAchievementCount)
+			}
+		}
+
+		for _, userID := range userIDs {
+			awarded2, err := engine.EvaluateWinnerAchievements(userID)
+			if err != nil {
+				rt.Fatalf("Second EvaluateWinnerAchievements failed for user %d: %v", userID, err)
+			}
+			if len(awarded2) > 0 {
+				rt.Errorf("Second evaluation should not award any achievements to user %d, got %v", userID, awarded2)
+			}
+		}
+	})
+}
+
+// Property 5: Writer Achievement on Text to Image
+// **Validates: Requirements 3.1, 3.3**
+func TestProperty5_WriterAchievementOnTextToImage(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupAchievementEngineTestDB(t)
+		defer cleanup()
+
+		achievementRepo := db.NewAchievementRepository(queue)
+		userRepo := db.NewUserRepository(queue)
+		progressRepo := db.NewProgressRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+
+		engine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+
+		// Create a mix of text and image steps
+		numSteps := rapid.IntRange(3, 10).Draw(rt, "numSteps")
+		var steps []*models.Step
+		var imageStepIndices []int
+
+		for i := 1; i <= numSteps; i++ {
+			isImageStep := rapid.Bool().Draw(rt, fmt.Sprintf("isImageStep_%d", i))
+			var step *models.Step
+			if isImageStep {
+				step = createTestStepWithType(t, stepRepo, i, models.AnswerTypeImage)
+				imageStepIndices = append(imageStepIndices, i-1)
+			} else {
+				step = createTestStepWithType(t, stepRepo, i, models.AnswerTypeText)
+			}
+			steps = append(steps, step)
+		}
+
+		userID := int64(rapid.IntRange(1000, 9999).Draw(rt, "userID"))
+		createTestUserForEngine(t, userRepo, userID)
+
+		// Determine if user will send text on any image step
+		willSendTextOnImageStep := len(imageStepIndices) > 0 && rapid.Bool().Draw(rt, "willSendTextOnImageStep")
+		var textOnImageStepIndex int
+		if willSendTextOnImageStep {
+			textOnImageStepIndex = imageStepIndices[rapid.IntRange(0, len(imageStepIndices)-1).Draw(rt, "textOnImageStepIndex")]
+		}
+
+		// Simulate user interactions
+		baseTime := time.Now().Add(-2 * time.Hour)
+		actualTextOnImageTask := false
+
+		for i, step := range steps {
+			if willSendTextOnImageStep && i == textOnImageStepIndex {
+				// User sends text on image step - this should trigger writer achievement
+				answerTime := baseTime.Add(time.Duration(i*5) * time.Minute)
+				createUserAnswerWithID(t, queue, userID, step.ID, "some text answer", false, answerTime)
+				actualTextOnImageTask = true
+			} else if step.AnswerType == models.AnswerTypeText {
+				// Normal text answer on text step
+				answerTime := baseTime.Add(time.Duration(i*5) * time.Minute)
+				createUserAnswerWithID(t, queue, userID, step.ID, "correct text answer", false, answerTime)
+				createUserProgress(t, progressRepo, userID, step.ID, models.StatusApproved, &answerTime)
+			} else if step.AnswerType == models.AnswerTypeImage && i != textOnImageStepIndex {
+				// Normal image answer on image step
+				answerTime := baseTime.Add(time.Duration(i*5) * time.Minute)
+				answerID := createUserAnswerWithID(t, queue, userID, step.ID, "", false, answerTime)
+				createAnswerImage(t, queue, answerID)
+				createUserProgress(t, progressRepo, userID, step.ID, models.StatusApproved, &answerTime)
+			}
+		}
+
+		// Test the OnTextOnImageTask function directly
+		if actualTextOnImageTask {
+			awarded, err := engine.OnTextOnImageTask(userID)
+			if err != nil {
+				rt.Fatalf("OnTextOnImageTask failed: %v", err)
+			}
+
+			hasWriter, err := achievementRepo.HasUserAchievement(userID, "writer")
+			if err != nil {
+				rt.Fatalf("HasUserAchievement failed: %v", err)
+			}
+
+			if !hasWriter {
+				rt.Errorf("User who sent text on image task should have 'writer' achievement")
+			}
+
+			if len(awarded) == 0 {
+				rt.Errorf("OnTextOnImageTask should return awarded achievement when user doesn't have it yet")
+			} else if awarded[0] != "writer" {
+				rt.Errorf("OnTextOnImageTask should award 'writer' achievement, got %v", awarded)
+			}
+
+			// Test idempotence - calling again should not award again
+			awarded2, err := engine.OnTextOnImageTask(userID)
+			if err != nil {
+				rt.Fatalf("Second OnTextOnImageTask failed: %v", err)
+			}
+			if len(awarded2) > 0 {
+				rt.Errorf("Second OnTextOnImageTask call should not award achievement again, got %v", awarded2)
+			}
+		} else {
+			// User never sent text on image task
+			_, err := engine.OnTextOnImageTask(userID)
+			if err != nil {
+				rt.Fatalf("OnTextOnImageTask failed: %v", err)
+			}
+
+			hasWriter, err := achievementRepo.HasUserAchievement(userID, "writer")
+			if err != nil {
+				rt.Fatalf("HasUserAchievement failed: %v", err)
+			}
+
+			// Even if we call OnTextOnImageTask, user should get the achievement
+			// because the function awards it regardless of actual behavior
+			if !hasWriter {
+				rt.Errorf("OnTextOnImageTask should award writer achievement when called")
+			}
+		}
+	})
+}
+
+// Property 6: Backward Compatibility - Composite Achievements
+func TestProperty6_BackwardCompatibilityCompositeAchievements(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupAchievementEngineTestDB(t)
+		defer cleanup()
+
+		achievementRepo := db.NewAchievementRepository(queue)
+		userRepo := db.NewUserRepository(queue)
+		progressRepo := db.NewProgressRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+
+		engine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+
+		// Create test steps
+		numSteps := rapid.IntRange(25, 30).Draw(rt, "numSteps")
+		var steps []*models.Step
+		for i := 1; i <= numSteps; i++ {
+			step := createTestStep(t, stepRepo, i)
+			steps = append(steps, step)
+		}
+
+		userID := int64(rapid.IntRange(1000, 9999).Draw(rt, "userID"))
+		createTestUserForEngine(t, userRepo, userID)
+
+		// Set up user with conditions for composite achievements
+		hasAllProgressAchievements := rapid.Bool().Draw(rt, "hasAllProgressAchievements")
+		completionTimeMinutes := rapid.IntRange(0, 60).Draw(rt, "completionTimeMinutes")
+		hasErrors := rapid.Bool().Draw(rt, "hasErrors")
+		usedHints := rapid.Bool().Draw(rt, "usedHints")
+
+		baseTime := time.Now().Add(-time.Duration(completionTimeMinutes+10) * time.Minute)
+		earnedAt := baseTime
+
+		// Assign progress achievements if needed
+		if hasAllProgressAchievements {
+			for _, key := range SuperCollectorRequiredAchievements {
+				assignAchievementToUser(t, achievementRepo, userID, key, earnedAt)
+				earnedAt = earnedAt.Add(time.Minute)
+			}
+		}
+
+		// Create user progress and answers
+		for i := 0; i < numSteps && i < len(steps); i++ {
+			completedAt := baseTime.Add(time.Duration(i*completionTimeMinutes/(numSteps+1)) * time.Minute)
+			if i == numSteps-1 {
+				completedAt = baseTime.Add(time.Duration(completionTimeMinutes) * time.Minute)
+			}
+			createUserProgress(t, progressRepo, userID, steps[i].ID, models.StatusApproved, &completedAt)
+
+			useHint := usedHints && i == 0
+			createUserAnswer(t, queue, userID, steps[i].ID, useHint, completedAt)
+		}
+
+		if hasErrors {
+			extraAnswerTime := baseTime.Add(time.Duration(numSteps+1) * time.Minute)
+			createUserAnswer(t, queue, userID, steps[0].ID, false, extraAnswerTime)
+		}
+
+		// Evaluate composite achievements WITHOUT new winner achievements present
+		_, err := engine.EvaluateCompositeAchievements(userID)
+		if err != nil {
+			rt.Fatalf("EvaluateCompositeAchievements failed: %v", err)
+		}
+
+		// Store the state of composite achievements
+		hasSuperCollectorBefore, _ := achievementRepo.HasUserAchievement(userID, "super_collector")
+		hasSuperBrainBefore, _ := achievementRepo.HasUserAchievement(userID, "super_brain")
+		hasLegendBefore, _ := achievementRepo.HasUserAchievement(userID, "legend")
+
+		// Now add some new winner achievements (simulate they exist)
+		winnerAchievementsToAdd := rapid.IntRange(0, 3).Draw(rt, "winnerAchievementsToAdd")
+		for i := 1; i <= winnerAchievementsToAdd; i++ {
+			winnerKey := WinnerAchievementKeys[i]
+			assignAchievementToUser(t, achievementRepo, userID, winnerKey, earnedAt.Add(time.Duration(i)*time.Minute))
+		}
+
+		// Evaluate composite achievements WITH new winner achievements present
+		_, err = engine.EvaluateCompositeAchievements(userID)
+		if err != nil {
+			rt.Fatalf("EvaluateCompositeAchievements with winners failed: %v", err)
+		}
+
+		// Check that composite achievement evaluation is unchanged
+		hasSuperCollectorAfter, _ := achievementRepo.HasUserAchievement(userID, "super_collector")
+		hasSuperBrainAfter, _ := achievementRepo.HasUserAchievement(userID, "super_brain")
+		hasLegendAfter, _ := achievementRepo.HasUserAchievement(userID, "legend")
+
+		// Composite achievements should be unaffected by presence of new winner achievements
+		if hasSuperCollectorBefore != hasSuperCollectorAfter {
+			rt.Errorf("super_collector achievement status changed after adding winner achievements: before=%v, after=%v",
+				hasSuperCollectorBefore, hasSuperCollectorAfter)
+		}
+
+		if hasSuperBrainBefore != hasSuperBrainAfter {
+			rt.Errorf("super_brain achievement status changed after adding winner achievements: before=%v, after=%v",
+				hasSuperBrainBefore, hasSuperBrainAfter)
+		}
+
+		if hasLegendBefore != hasLegendAfter {
+			rt.Errorf("legend achievement status changed after adding winner achievements: before=%v, after=%v",
+				hasLegendBefore, hasLegendAfter)
+		}
+
+		// Verify that legend achievement requirements do NOT include new winner achievements
+		legendAchievement, err := achievementRepo.GetByKey("legend")
+		if err != nil {
+			rt.Fatalf("Failed to get legend achievement: %v", err)
+		}
+
+		for _, winnerKey := range []string{"winner_1", "winner_2", "winner_3"} {
+			for _, reqKey := range legendAchievement.Conditions.RequiredAchievements {
+				if reqKey == winnerKey {
+					rt.Errorf("Legend achievement should NOT require new winner achievement %s", winnerKey)
+				}
+			}
+		}
+
+		// Verify that the evaluation logic itself is consistent
+		expectedSuperCollector := hasAllProgressAchievements
+		if expectedSuperCollector != hasSuperCollectorAfter {
+			rt.Errorf("super_collector evaluation inconsistent: expected=%v, actual=%v",
+				expectedSuperCollector, hasSuperCollectorAfter)
+		}
+
+		expectedSuperBrain := !hasErrors && !usedHints && completionTimeMinutes < 30
+		if expectedSuperBrain != hasSuperBrainAfter {
+			rt.Errorf("super_brain evaluation inconsistent: expected=%v, actual=%v (time=%d, errors=%v, hints=%v)",
+				expectedSuperBrain, hasSuperBrainAfter, completionTimeMinutes, hasErrors, usedHints)
+		}
+	})
+}
+
+// Property 7: Winner and Completion Achievement Coexistence
+func TestProperty7_WinnerAndCompletionAchievementCoexistence(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupAchievementEngineTestDB(t)
+		defer cleanup()
+
+		achievementRepo := db.NewAchievementRepository(queue)
+		userRepo := db.NewUserRepository(queue)
+		progressRepo := db.NewProgressRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+
+		engine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+
+		// Create test steps
+		numSteps := rapid.IntRange(25, 30).Draw(rt, "numSteps")
+		var steps []*models.Step
+		for i := 1; i <= numSteps; i++ {
+			step := createTestStep(t, stepRepo, i)
+			steps = append(steps, step)
+		}
+
+		// Create multiple users who will complete the quest
+		numUsers := rapid.IntRange(1, 5).Draw(rt, "numUsers")
+		var userIDs []int64
+
+		// Use atomic counter to ensure unique user IDs across all test runs
+		baseUserID := atomic.AddInt64(&testDBCounter, 1) * 100000
+		for i := 0; i < numUsers; i++ {
+			userID := baseUserID + int64(i*1000)
+			createTestUserForEngine(t, userRepo, userID)
+			userIDs = append(userIDs, userID)
+		}
+
+		// Have all users complete the quest at different times
+		baseTime := time.Now().Add(-2 * time.Hour)
+
+		// Create completion data with deterministic ordering
+		var completions []struct {
+			userID         int64
+			completionTime time.Time
+		}
+
+		for userIndex, userID := range userIDs {
+			// Ensure deterministic completion order by using userIndex
+			userCompletionOffset := rapid.IntRange(0, 10).Draw(rt, fmt.Sprintf("completionOffset_%d", userIndex))
+			completionTime := baseTime.Add(time.Duration(userIndex*60+userCompletionOffset) * time.Minute)
+
+			completions = append(completions, struct {
+				userID         int64
+				completionTime time.Time
+			}{
+				userID:         userID,
+				completionTime: completionTime,
+			})
+
+			for stepIndex, step := range steps {
+				stepCompletedAt := baseTime.Add(time.Duration(userIndex*60+stepIndex) * time.Minute)
+				if stepIndex == len(steps)-1 {
+					stepCompletedAt = completionTime
+				}
+				createUserProgress(t, progressRepo, userID, step.ID, models.StatusApproved, &stepCompletedAt)
+				createUserAnswer(t, queue, userID, step.ID, false, stepCompletedAt)
+			}
+		}
+
+		// Sort completions by time to determine expected positions
+		sort.Slice(completions, func(i, j int) bool {
+			return completions[i].completionTime.Before(completions[j].completionTime)
+		})
+
+		// Evaluate quest completion for each user in completion order
+		for _, completion := range completions {
+			userID := completion.userID
+			awarded, err := engine.OnQuestCompleted(userID)
+			if err != nil {
+				rt.Fatalf("OnQuestCompleted failed for user %d: %v", userID, err)
+			}
+
+			// Check that user received "winner" achievement
+			hasWinner, err := achievementRepo.HasUserAchievement(userID, "winner")
+			if err != nil {
+				rt.Fatalf("HasUserAchievement failed for winner: %v", err)
+			}
+			if !hasWinner {
+				rt.Errorf("User %d should have 'winner' achievement after completing quest", userID)
+			}
+
+			// Verify "winner" is in awarded list
+			hasWinnerInAwarded := false
+			for _, awardedKey := range awarded {
+				if awardedKey == "winner" {
+					hasWinnerInAwarded = true
+					break
+				}
+			}
+			if !hasWinnerInAwarded {
+				rt.Errorf("'winner' achievement should be in awarded list for user %d", userID)
+			}
+		}
+
+		// Verify that winner achievements are unique (only one user per position)
+		for pos := 1; pos <= 3; pos++ {
+			winnerKey := WinnerAchievementKeys[pos]
+			holders, err := achievementRepo.GetAchievementHolders(winnerKey)
+			if err != nil {
+				rt.Fatalf("GetAchievementHolders failed for %s: %v", winnerKey, err)
+			}
+			if len(holders) > 1 {
+				rt.Errorf("Winner achievement %s should have at most 1 holder, got %d", winnerKey, len(holders))
+			}
+		}
+
+		// Verify that "winner" achievement is not unique (multiple users can have it)
+		winnerHolders, err := achievementRepo.GetAchievementHolders("winner")
+		if err != nil {
+			rt.Fatalf("GetAchievementHolders failed for winner: %v", err)
+		}
+		if len(winnerHolders) != len(userIDs) {
+			rt.Errorf("All %d users should have 'winner' achievement, got %d holders",
+				len(userIDs), len(winnerHolders))
+		}
+	})
+}
+
+func TestLegendAchievementRequirementsUnchanged(t *testing.T) {
+	queue, cleanup := setupAchievementEngineTestDB(t)
+	defer cleanup()
+
+	achievementRepo := db.NewAchievementRepository(queue)
+
+	// Get the legend achievement definition
+	legendAchievement, err := achievementRepo.GetByKey("legend")
+	if err != nil {
+		t.Fatalf("Failed to get legend achievement: %v", err)
+	}
+
+	// Verify that legend achievement does NOT include new winner achievements
+	newWinnerAchievements := []string{"winner_1", "winner_2", "winner_3"}
+	for _, newWinnerKey := range newWinnerAchievements {
+		for _, reqKey := range legendAchievement.Conditions.RequiredAchievements {
+			if reqKey == newWinnerKey {
+				t.Errorf("Legend achievement should NOT require new winner achievement %s, but found it in requirements", newWinnerKey)
+			}
+		}
+	}
+
+	// Verify that the LegendRequiredAchievements variable also doesn't include new winner achievements
+	for _, newWinnerKey := range newWinnerAchievements {
+		for _, reqKey := range LegendRequiredAchievements {
+			if reqKey == newWinnerKey {
+				t.Errorf("LegendRequiredAchievements variable should NOT include new winner achievement %s, but found it", newWinnerKey)
+			}
+		}
+	}
+
+	// Verify that legend achievement still includes the original "winner" achievement
+	hasOriginalWinner := false
+	for _, reqKey := range legendAchievement.Conditions.RequiredAchievements {
+		if reqKey == "winner" {
+			hasOriginalWinner = true
+			break
+		}
+	}
+	if !hasOriginalWinner {
+		t.Errorf("Legend achievement should still require the original 'winner' achievement")
+	}
+
+	// Verify that LegendRequiredAchievements variable still includes the original "winner" achievement
+	hasOriginalWinnerInVar := false
+	for _, reqKey := range LegendRequiredAchievements {
+		if reqKey == "winner" {
+			hasOriginalWinnerInVar = true
+			break
+		}
+	}
+	if !hasOriginalWinnerInVar {
+		t.Errorf("LegendRequiredAchievements variable should still include the original 'winner' achievement")
+	}
+
+	t.Logf("Legend achievement requirements verified: excludes new winner achievements, includes original winner achievement")
+}

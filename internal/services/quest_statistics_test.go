@@ -37,9 +37,11 @@ func TestGetQuestStatistics(t *testing.T) {
 	stepRepo := db.NewStepRepository(queue)
 	progressRepo := db.NewProgressRepository(queue)
 	answerRepo := db.NewAnswerRepository(queue)
+	achievementRepo := db.NewAchievementRepository(queue)
 	chatStateRepo := db.NewChatStateRepository(queue)
 	statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
-	userManager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
+	achievementEngine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+	userManager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, achievementRepo, statsService, achievementEngine)
 
 	// Create test steps
 	step1ID, _ := stepRepo.Create(&models.Step{
@@ -140,9 +142,11 @@ func TestGetQuestStatistics_NoActiveSteps(t *testing.T) {
 	stepRepo := db.NewStepRepository(queue)
 	progressRepo := db.NewProgressRepository(queue)
 	answerRepo := db.NewAnswerRepository(queue)
+	achievementRepo := db.NewAchievementRepository(queue)
 	chatStateRepo := db.NewChatStateRepository(queue)
 	statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
-	userManager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
+	achievementEngine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+	userManager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, achievementRepo, statsService, achievementEngine)
 
 	// Create test users
 	user1 := &models.User{ID: 1, FirstName: "User", LastName: "One", Username: "user1"}

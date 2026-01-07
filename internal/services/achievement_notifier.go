@@ -41,9 +41,9 @@ var categoryEmojis = map[models.AchievementCategory]string{
 }
 
 var achievementEmojis = map[string]string{
-	"pioneer":         "🥇",
-	"second_place":    "🥈",
-	"third_place":     "🥉",
+	"pioneer":         "🔥",
+	"second_place":    "🌟",
+	"third_place":     "💫",
 	"beginner_5":      "🌱",
 	"experienced_10":  "🌿",
 	"advanced_15":     "🌳",
@@ -71,6 +71,11 @@ var achievementEmojis = map[string]string{
 	"super_collector": "🎁",
 	"super_brain":     "🧠",
 	"legend":          "👑",
+	"winner_1":        "🥇",
+	"winner_2":        "🥈",
+	"winner_3":        "🥉",
+	"restart":         "🔄",
+	"writer":          "✍️",
 }
 
 func (n *AchievementNotifier) GetAchievementEmoji(achievement *models.Achievement) string {
@@ -133,11 +138,11 @@ func (n *AchievementNotifier) NotifyAchievement(ctx context.Context, userID int6
 	}
 
 	if stickerFileID != "" && n.stickerService != nil {
-		log.Printf("[ACHIEVEMENT_NOTIFIER] Sending sticker %s to user %d", stickerFileID, userID)
+		// log.Printf("[ACHIEVEMENT_NOTIFIER] Sending sticker %s to user %d", stickerFileID, userID)
 		if err := n.stickerService.SendSticker(ctx, userID, stickerFileID); err != nil {
 			log.Printf("[ACHIEVEMENT_NOTIFIER] Failed to send sticker to user %d: %v", userID, err)
 		} else {
-			log.Printf("[ACHIEVEMENT_NOTIFIER] Successfully sent sticker to user %d", userID)
+			// log.Printf("[ACHIEVEMENT_NOTIFIER] Successfully sent sticker to user %d", userID)
 		}
 	} else {
 		log.Printf("[ACHIEVEMENT_NOTIFIER] Not sending sticker: fileID='%s', stickerService=%v", stickerFileID, n.stickerService != nil)

@@ -81,9 +81,9 @@ func TestBotHandlerIntegration(t *testing.T) {
 	answerChecker := services.NewAnswerChecker(answerRepo, progressRepo, userRepo)
 	msgManager := services.NewMessageManager(nil, chatStateRepo, errorManager)
 	statsService := services.NewStatisticsService(dbQueue, stepRepo, progressRepo, userRepo)
-	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
-	questStateManager := services.NewQuestStateManager(settingsRepo)
 	achievementEngine := services.NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, dbQueue)
+	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, achievementRepo, statsService, achievementEngine)
+	questStateManager := services.NewQuestStateManager(settingsRepo)
 	achievementNotifier := services.NewAchievementNotifier(nil, achievementRepo, msgManager, nil)
 	achievementService := services.NewAchievementService(achievementRepo, userRepo)
 
@@ -189,10 +189,10 @@ func TestAdminHandlerIntegration(t *testing.T) {
 	adminID := int64(123456)
 
 	statsService := services.NewStatisticsService(dbQueue, stepRepo, progressRepo, userRepo)
-	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
+	achievementEngine := services.NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, dbQueue)
+	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, achievementRepo, statsService, achievementEngine)
 	questStateManager := services.NewQuestStateManager(settingsRepo)
 	achievementService := services.NewAchievementService(achievementRepo, userRepo)
-	achievementEngine := services.NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, dbQueue)
 
 	adminHandler := handlers.NewAdminHandler(
 		nil,

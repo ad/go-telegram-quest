@@ -70,7 +70,7 @@ func (e *AchievementEngine) EvaluateUserAchievements(userID int64) ([]string, er
 				continue
 			}
 			awarded = append(awarded, achievement.Key)
-			log.Printf("[ACHIEVEMENT_ENGINE] Awarded achievement %s to user %d", achievement.Key, userID)
+			// log.Printf("[ACHIEVEMENT_ENGINE] Awarded achievement %s to user %d", achievement.Key, userID)
 		}
 	}
 
@@ -270,6 +270,11 @@ type UserFirstAnswer struct {
 	FirstCorrectAnswerTime time.Time
 }
 
+type UserCompletion struct {
+	UserID         int64
+	CompletionTime time.Time
+}
+
 func (e *AchievementEngine) getUsersOrderedByFirstCorrectAnswer() ([]UserFirstAnswer, error) {
 	result, err := e.queue.Execute(func(db *sql.DB) (any, error) {
 		rows, err := db.Query(`
@@ -310,6 +315,57 @@ func (e *AchievementEngine) getUsersOrderedByFirstCorrectAnswer() ([]UserFirstAn
 		return nil, err
 	}
 	return result.([]UserFirstAnswer), nil
+}
+
+func (e *AchievementEngine) getUsersOrderedByQuestCompletion() ([]UserCompletion, error) {
+	result, err := e.queue.Execute(func(db *sql.DB) (any, error) {
+		// Get total number of active steps
+		var totalSteps int
+		err := db.QueryRow("SELECT COUNT(*) FROM steps WHERE is_active = 1").Scan(&totalSteps)
+		if err != nil {
+			return nil, err
+		}
+
+		// Get users who completed all steps, ordered by their last correct answer timestamp
+		rows, err := db.Query(`
+			SELECT p.user_id, MAX(p.completed_at) as completion_time
+			FROM user_progress p
+			WHERE p.status = 'approved' AND p.completed_at IS NOT NULL
+			GROUP BY p.user_id
+			HAVING COUNT(*) = ?
+			ORDER BY completion_time ASC
+		`, totalSteps)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var users []UserCompletion
+		for rows.Next() {
+			var u UserCompletion
+			var completedAtStr string
+			if err := rows.Scan(&u.UserID, &completedAtStr); err != nil {
+				return nil, err
+			}
+			parsedTime, err := time.Parse("2006-01-02 15:04:05.999999999-07:00", completedAtStr)
+			if err != nil {
+				parsedTime, err = time.Parse("2006-01-02T15:04:05Z", completedAtStr)
+				if err != nil {
+					parsedTime, err = time.Parse("2006-01-02 15:04:05", completedAtStr)
+					if err != nil {
+						parsedTime, _ = time.Parse(time.RFC3339, completedAtStr)
+					}
+				}
+			}
+			u.CompletionTime = parsedTime
+			users = append(users, u)
+		}
+		return users, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]UserCompletion), nil
 }
 
 func (e *AchievementEngine) evaluateConditions(userID int64, achievement *models.Achievement) (bool, error) {
@@ -551,8 +607,97 @@ func (e *AchievementEngine) EvaluatePositionBasedAchievements(userID int64) ([]s
 
 		if assigned {
 			awarded = append(awarded, achievement.Key)
-			log.Printf("[ACHIEVEMENT_ENGINE] Awarded unique achievement %s to user %d", achievement.Key, userID)
+			// log.Printf("[ACHIEVEMENT_ENGINE] Awarded unique achievement %s to user %d", achievement.Key, userID)
 		}
+	}
+
+	return awarded, nil
+}
+
+func (e *AchievementEngine) EvaluateWinnerAchievements(userID int64) ([]string, error) {
+	e.uniqueMutex.Lock()
+	defer e.uniqueMutex.Unlock()
+
+	// Check if user already has any winner achievement
+	for pos := 1; pos <= 3; pos++ {
+		achievementKey := WinnerAchievementKeys[pos]
+		hasAchievement, err := e.achievementRepo.HasUserAchievement(userID, achievementKey)
+		if err != nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Error checking if user %d has %s: %v", userID, achievementKey, err)
+			continue
+		}
+		if hasAchievement {
+			// User already has a winner achievement, don't award another
+			return nil, nil
+		}
+	}
+
+	// First check if all winner positions are already taken
+	allPositionsTaken := true
+	for pos := 1; pos <= 3; pos++ {
+		achievementKey := WinnerAchievementKeys[pos]
+		holders, err := e.achievementRepo.GetAchievementHolders(achievementKey)
+		if err != nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Error getting holders for %s: %v", achievementKey, err)
+			continue
+		}
+		if len(holders) == 0 {
+			allPositionsTaken = false
+			break
+		}
+	}
+
+	// If all positions are taken, no new winner achievements can be awarded
+	if allPositionsTaken {
+		return nil, nil
+	}
+
+	completedUsers, err := e.getUsersOrderedByQuestCompletion()
+	if err != nil {
+		return nil, err
+	}
+
+	var awarded []string
+	for i, user := range completedUsers {
+		if user.UserID != userID {
+			continue
+		}
+
+		position := i + 1
+		if position > 3 {
+			break
+		}
+
+		achievementKey, exists := WinnerAchievementKeys[position]
+		if !exists {
+			continue
+		}
+
+		// Double-check that this position is still available
+		holders, err := e.achievementRepo.GetAchievementHolders(achievementKey)
+		if err != nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Error getting holders for %s: %v", achievementKey, err)
+			continue
+		}
+		if len(holders) > 0 {
+			continue
+		}
+
+		achievement, err := e.achievementRepo.GetByKey(achievementKey)
+		if err != nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Winner achievement %s not found: %v", achievementKey, err)
+			continue
+		}
+
+		err = e.achievementRepo.AssignToUser(userID, achievement.ID, user.CompletionTime, false)
+		if err != nil {
+			log.Printf("[ACHIEVEMENT_ENGINE] Error assigning winner achievement %s to user %d: %v", achievementKey, userID, err)
+			continue
+		}
+
+		awarded = append(awarded, achievementKey)
+		// log.Printf("[ACHIEVEMENT_ENGINE] Awarded winner achievement %s to user %d (position %d)", achievementKey, userID, position)
+		break
 	}
 
 	return awarded, nil
@@ -566,6 +711,12 @@ var ProgressAchievementKeys = map[int]string{
 	15: "advanced_15",
 	20: "expert_20",
 	25: "master_25",
+}
+
+var WinnerAchievementKeys = map[int]string{
+	1: "winner_1",
+	2: "winner_2",
+	3: "winner_3",
 }
 
 func (e *AchievementEngine) EvaluateProgressAchievements(userID int64) ([]string, error) {
@@ -607,7 +758,7 @@ func (e *AchievementEngine) EvaluateProgressAchievements(userID int64) ([]string
 		}
 
 		awarded = append(awarded, achievementKey)
-		log.Printf("[ACHIEVEMENT_ENGINE] Awarded progress achievement %s to user %d (correct answers: %d)", achievementKey, userID, correctCount)
+		// log.Printf("[ACHIEVEMENT_ENGINE] Awarded progress achievement %s to user %d (correct answers: %d)", achievementKey, userID, correctCount)
 	}
 
 	return awarded, nil
@@ -897,12 +1048,24 @@ func (e *AchievementEngine) tryAwardCompletionAchievement(userID int64, achievem
 		return false, err
 	}
 
-	log.Printf("[ACHIEVEMENT_ENGINE] Awarded completion achievement %s to user %d", achievementKey, userID)
+	// log.Printf("[ACHIEVEMENT_ENGINE] Awarded completion achievement %s to user %d", achievementKey, userID)
 	return true, nil
 }
 
 func (e *AchievementEngine) OnQuestCompleted(userID int64) ([]string, error) {
-	return e.EvaluateCompletionAchievements(userID)
+	completionAchievements, err := e.EvaluateCompletionAchievements(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	winnerAchievements, err := e.EvaluateWinnerAchievements(userID)
+	if err != nil {
+		log.Printf("[ACHIEVEMENT_ENGINE] Error evaluating winner achievements: %v", err)
+	} else {
+		completionAchievements = append(completionAchievements, winnerAchievements...)
+	}
+
+	return completionAchievements, nil
 }
 
 func (e *AchievementEngine) EvaluateCompletionConditions(userID int64, achievement *models.Achievement) (bool, error) {
@@ -1133,7 +1296,7 @@ func (e *AchievementEngine) tryAwardHintAchievement(userID int64, achievementKey
 		return false, err
 	}
 
-	log.Printf("[ACHIEVEMENT_ENGINE] Awarded hint achievement %s to user %d", achievementKey, userID)
+	// log.Printf("[ACHIEVEMENT_ENGINE] Awarded hint achievement %s to user %d", achievementKey, userID)
 	return true, nil
 }
 
@@ -1420,7 +1583,7 @@ func (e *AchievementEngine) tryAwardSpecialAchievement(userID int64, achievement
 		return false, err
 	}
 
-	log.Printf("[ACHIEVEMENT_ENGINE] Awarded special achievement %s to user %d", achievementKey, userID)
+	// log.Printf("[ACHIEVEMENT_ENGINE] Awarded special achievement %s to user %d", achievementKey, userID)
 	return true, nil
 }
 
@@ -1728,7 +1891,7 @@ func (e *AchievementEngine) evaluateSuperCollector(userID int64) (bool, error) {
 		return false, err
 	}
 
-	log.Printf("[ACHIEVEMENT_ENGINE] Awarded composite achievement %s to user %d", achievementKey, userID)
+	// log.Printf("[ACHIEVEMENT_ENGINE] Awarded composite achievement %s to user %d", achievementKey, userID)
 	return true, nil
 }
 
@@ -1774,7 +1937,7 @@ func (e *AchievementEngine) evaluateSuperBrain(userID int64) (bool, error) {
 		return false, err
 	}
 
-	log.Printf("[ACHIEVEMENT_ENGINE] Awarded composite achievement %s to user %d", achievementKey, userID)
+	// log.Printf("[ACHIEVEMENT_ENGINE] Awarded composite achievement %s to user %d", achievementKey, userID)
 	return true, nil
 }
 
@@ -1809,7 +1972,7 @@ func (e *AchievementEngine) evaluateLegend(userID int64) (bool, error) {
 		return false, err
 	}
 
-	log.Printf("[ACHIEVEMENT_ENGINE] Awarded composite achievement %s to user %d", achievementKey, userID)
+	// log.Printf("[ACHIEVEMENT_ENGINE] Awarded composite achievement %s to user %d", achievementKey, userID)
 	return true, nil
 }
 
@@ -1947,6 +2110,50 @@ func (e *AchievementEngine) EvaluateRetroactiveCompositeAchievements(achievement
 	}
 
 	return awardedUsers, nil
+}
+
+func (e *AchievementEngine) OnProgressReset(userID int64) ([]string, error) {
+	hasAchievement, err := e.achievementRepo.HasUserAchievement(userID, "restart")
+	if err != nil {
+		return nil, err
+	}
+	if hasAchievement {
+		return nil, nil
+	}
+
+	achievement, err := e.achievementRepo.GetByKey("restart")
+	if err != nil {
+		return nil, err
+	}
+
+	err = e.achievementRepo.AssignToUser(userID, achievement.ID, time.Now(), false)
+	if err != nil {
+		return nil, err
+	}
+
+	return []string{"restart"}, nil
+}
+
+func (e *AchievementEngine) OnTextOnImageTask(userID int64) ([]string, error) {
+	hasAchievement, err := e.achievementRepo.HasUserAchievement(userID, "writer")
+	if err != nil {
+		return nil, err
+	}
+	if hasAchievement {
+		return nil, nil
+	}
+
+	achievement, err := e.achievementRepo.GetByKey("writer")
+	if err != nil {
+		return nil, err
+	}
+
+	err = e.achievementRepo.AssignToUser(userID, achievement.ID, time.Now(), false)
+	if err != nil {
+		return nil, err
+	}
+
+	return []string{"writer"}, nil
 }
 
 func (e *AchievementEngine) RecalculatePositionAchievements() (map[string]int64, error) {

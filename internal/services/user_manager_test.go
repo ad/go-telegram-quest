@@ -1,7 +1,9 @@
 package services
 
 import (
+	"database/sql"
 	"testing"
+	"time"
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
@@ -18,9 +20,11 @@ func TestProperty19_UserListPagination(t *testing.T) {
 		stepRepo := db.NewStepRepository(queue)
 		progressRepo := db.NewProgressRepository(queue)
 		answerRepo := db.NewAnswerRepository(queue)
+		achievementRepo := db.NewAchievementRepository(queue)
 		statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
 		chatStateRepo := db.NewChatStateRepository(queue)
-		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
+		achievementEngine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, achievementRepo, statsService, achievementEngine)
 
 		numUsers := rapid.IntRange(0, 35).Draw(rt, "numUsers")
 		for i := 1; i <= numUsers; i++ {
@@ -85,9 +89,11 @@ func TestProperty20_UserDetailsCompleteness(t *testing.T) {
 		stepRepo := db.NewStepRepository(queue)
 		progressRepo := db.NewProgressRepository(queue)
 		answerRepo := db.NewAnswerRepository(queue)
+		achievementRepo := db.NewAchievementRepository(queue)
 		statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
 		chatStateRepo := db.NewChatStateRepository(queue)
-		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
+		achievementEngine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, achievementRepo, statsService, achievementEngine)
 
 		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
 		firstName := rapid.StringMatching(`[A-Za-z]{0,10}`).Draw(rt, "firstName")
@@ -165,6 +171,260 @@ func TestProperty20_UserDetailsCompleteness(t *testing.T) {
 			if details.Status != models.StatusPending {
 				rt.Errorf("Expected Status=pending, got %s", details.Status)
 			}
+		}
+	})
+}
+func TestProperty3_RestartAchievementPreservation(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupTestDBForUserStats(t)
+		defer cleanup()
+
+		userRepo := db.NewUserRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+		progressRepo := db.NewProgressRepository(queue)
+		answerRepo := db.NewAnswerRepository(queue)
+		achievementRepo := db.NewAchievementRepository(queue)
+		statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
+		chatStateRepo := db.NewChatStateRepository(queue)
+		achievementEngine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, achievementRepo, statsService, achievementEngine)
+
+		// Initialize achievements
+		_, err := queue.Execute(func(sqlDB *sql.DB) (any, error) {
+			return nil, db.InitializeDefaultAchievements(sqlDB)
+		})
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
+		firstName := rapid.StringMatching(`[A-Za-z]{1,10}`).Draw(rt, "firstName")
+
+		user := &models.User{
+			ID:        userID,
+			FirstName: firstName,
+		}
+		if err := userRepo.CreateOrUpdate(user); err != nil {
+			rt.Fatal(err)
+		}
+
+		// Create some progress and achievements for the user
+		numSteps := rapid.IntRange(1, 3).Draw(rt, "numSteps")
+		for i := 1; i <= numSteps; i++ {
+			step := &models.Step{
+				StepOrder:  i,
+				Text:       "Step text",
+				AnswerType: models.AnswerTypeText,
+				IsActive:   true,
+				IsDeleted:  false,
+			}
+			stepID, err := stepRepo.Create(step)
+			if err != nil {
+				rt.Fatal(err)
+			}
+
+			// Add some progress
+			progress := &models.UserProgress{
+				UserID:      userID,
+				StepID:      stepID,
+				Status:      models.StatusApproved,
+				CompletedAt: &time.Time{},
+			}
+			if err := progressRepo.Create(progress); err != nil {
+				rt.Fatal(err)
+			}
+		}
+
+		// Award some other achievements
+		otherAchievements := []string{"beginner_5", "photographer"}
+		for _, key := range otherAchievements {
+			achievement, err := achievementRepo.GetByKey(key)
+			if err == nil {
+				achievementRepo.AssignToUser(userID, achievement.ID, time.Now(), false)
+			}
+		}
+
+		// Check achievements before reset
+		achievementsBefore, err := achievementRepo.GetUserAchievements(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		// Reset user progress
+		err = manager.ResetUserProgress(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		// Check that restart achievement is present after reset
+		hasRestart, err := achievementRepo.HasUserAchievement(userID, "restart")
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if !hasRestart {
+			rt.Error("User should have restart achievement after progress reset")
+		}
+
+		// Check achievements after reset
+		achievementsAfter, err := achievementRepo.GetUserAchievements(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		// Verify that preserved achievements are still there
+		preservedKeys := map[string]bool{
+			"winner_1": true,
+			"winner_2": true,
+			"winner_3": true,
+			"restart":  true,
+			"cheater":  true,
+		}
+
+		for _, ua := range achievementsBefore {
+			achievement, err := achievementRepo.GetByID(ua.AchievementID)
+			if err != nil {
+				continue
+			}
+			if preservedKeys[achievement.Key] {
+				// This achievement should still be present
+				found := false
+				for _, afterUA := range achievementsAfter {
+					if afterUA.AchievementID == ua.AchievementID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					rt.Errorf("Preserved achievement %s should still be present after reset", achievement.Key)
+				}
+			}
+		}
+
+		// Verify progress was actually cleared
+		progressAfter, err := progressRepo.GetUserProgress(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if len(progressAfter) > 0 {
+			rt.Error("User progress should be cleared after reset")
+		}
+	})
+}
+func TestProperty4_RestartAchievementIdempotence(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupTestDBForUserStats(t)
+		defer cleanup()
+
+		userRepo := db.NewUserRepository(queue)
+		stepRepo := db.NewStepRepository(queue)
+		progressRepo := db.NewProgressRepository(queue)
+		answerRepo := db.NewAnswerRepository(queue)
+		achievementRepo := db.NewAchievementRepository(queue)
+		statsService := NewStatisticsService(queue, stepRepo, progressRepo, userRepo)
+		chatStateRepo := db.NewChatStateRepository(queue)
+		achievementEngine := NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, queue)
+		manager := NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, achievementRepo, statsService, achievementEngine)
+
+		// Initialize achievements
+		_, err := queue.Execute(func(sqlDB *sql.DB) (any, error) {
+			return nil, db.InitializeDefaultAchievements(sqlDB)
+		})
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		userID := rapid.Int64Range(1, 1000).Draw(rt, "userID")
+		firstName := rapid.StringMatching(`[A-Za-z]{1,10}`).Draw(rt, "firstName")
+
+		user := &models.User{
+			ID:        userID,
+			FirstName: firstName,
+		}
+		if err := userRepo.CreateOrUpdate(user); err != nil {
+			rt.Fatal(err)
+		}
+
+		// Create some progress for the user
+		numSteps := rapid.IntRange(1, 3).Draw(rt, "numSteps")
+		for i := 1; i <= numSteps; i++ {
+			step := &models.Step{
+				StepOrder:  i,
+				Text:       "Step text",
+				AnswerType: models.AnswerTypeText,
+				IsActive:   true,
+				IsDeleted:  false,
+			}
+			stepID, err := stepRepo.Create(step)
+			if err != nil {
+				rt.Fatal(err)
+			}
+
+			// Add some progress
+			progress := &models.UserProgress{
+				UserID:      userID,
+				StepID:      stepID,
+				Status:      models.StatusApproved,
+				CompletedAt: &time.Time{},
+			}
+			if err := progressRepo.Create(progress); err != nil {
+				rt.Fatal(err)
+			}
+		}
+
+		// Perform multiple resets
+		numResets := rapid.IntRange(2, 5).Draw(rt, "numResets")
+		for i := 0; i < numResets; i++ {
+			// Add some progress before each reset (except the first)
+			if i > 0 {
+				for j := 1; j <= numSteps; j++ {
+					steps, _ := stepRepo.GetActive()
+					if len(steps) > 0 {
+						progress := &models.UserProgress{
+							UserID:      userID,
+							StepID:      steps[0].ID,
+							Status:      models.StatusApproved,
+							CompletedAt: &time.Time{},
+						}
+						progressRepo.Create(progress)
+					}
+				}
+			}
+
+			// Reset user progress
+			err = manager.ResetUserProgress(userID)
+			if err != nil {
+				rt.Fatal(err)
+			}
+		}
+
+		// Check that user has exactly one restart achievement
+		userAchievements, err := achievementRepo.GetUserAchievements(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		restartCount := 0
+		for _, ua := range userAchievements {
+			achievement, err := achievementRepo.GetByID(ua.AchievementID)
+			if err != nil {
+				continue
+			}
+			if achievement.Key == "restart" {
+				restartCount++
+			}
+		}
+
+		if restartCount != 1 {
+			rt.Errorf("Expected exactly 1 restart achievement after %d resets, got %d", numResets, restartCount)
+		}
+
+		// Verify that restart achievement is present
+		hasRestart, err := achievementRepo.HasUserAchievement(userID, "restart")
+		if err != nil {
+			rt.Fatal(err)
+		}
+		if !hasRestart {
+			rt.Error("User should have restart achievement after multiple resets")
 		}
 	})
 }

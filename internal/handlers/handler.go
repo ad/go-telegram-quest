@@ -166,7 +166,7 @@ func (h *BotHandler) sendShadowBanResponse(ctx context.Context, chatID int64) {
 }
 
 func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
-	log.Printf("[HANDLER] handleCallback called with data: %s, from: %d, adminID: %d", callback.Data, callback.From.ID, h.adminID)
+	// log.Printf("[HANDLER] handleCallback called with data: %s, from: %d, adminID: %d", callback.Data, callback.From.ID, h.adminID)
 
 	if strings.HasPrefix(callback.Data, "next_step:") {
 		h.handleNextStepCallback(ctx, callback)
@@ -184,14 +184,14 @@ func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.Call
 	}
 
 	adminHandled := h.adminHandler.HandleCallback(ctx, callback)
-	log.Printf("[HANDLER] adminHandler.HandleCallback returned: %t", adminHandled)
+	// log.Printf("[HANDLER] adminHandler.HandleCallback returned: %t", adminHandled)
 	if adminHandled {
 		return
 	}
 
 	log.Printf("[HANDLER] processing callback in main handler: %s", callback.Data)
 	if strings.HasPrefix(callback.Data, "approve:") || strings.HasPrefix(callback.Data, "reject:") {
-		log.Printf("[HANDLER] calling handleAdminDecision")
+		// log.Printf("[HANDLER] calling handleAdminDecision")
 		h.handleAdminDecision(ctx, callback)
 	} else if strings.HasPrefix(callback.Data, "block:") {
 		h.handleBlockUser(ctx, callback)
@@ -344,6 +344,14 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 	step := state.CurrentStep
 
 	if step.AnswerType == models.AnswerTypeImage {
+		// Award writer achievement for sending text on image question
+		writerAchievements, err := h.achievementEngine.OnTextOnImageTask(userID)
+		if err != nil {
+			log.Printf("[HANDLER] Error awarding writer achievement: %v", err)
+		} else if len(writerAchievements) > 0 {
+			h.notifyAchievements(ctx, userID, writerAchievements)
+		}
+
 		h.msgManager.SaveUserAnswerMessageID(userID, msg.ID)
 		h.msgManager.SendReaction(ctx, userID, "📷 Для этого задания нужно отправить фото")
 		return
@@ -430,7 +438,7 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 }
 
 func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step *models.Step, percentage int, textAnswer string) {
-	log.Printf("[HANDLER] handleCorrectAnswer started for user %d, step %d", userID, step.ID)
+	// log.Printf("[HANDLER] handleCorrectAnswer started for user %d, step %d", userID, step.ID)
 
 	h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
 
@@ -443,7 +451,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	nextStep, _ := h.stepRepo.GetNextActive(step.StepOrder)
 	isLastStep := nextStep == nil
 
-	log.Printf("[HANDLER] Evaluating achievements for user %d, isLastStep=%v", userID, isLastStep)
+	// log.Printf("[HANDLER] Evaluating achievements for user %d, isLastStep=%v", userID, isLastStep)
 
 	// Сначала обрабатываем достижения
 	if isLastStep {
@@ -452,7 +460,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		h.evaluateAchievementsOnCorrectAnswer(ctx, userID)
 	}
 
-	log.Printf("[HANDLER] Achievements evaluated, sending correct message to user %d", userID)
+	// log.Printf("[HANDLER] Achievements evaluated, sending correct message to user %d", userID)
 
 	settings, _ := h.settingsRepo.GetAll()
 	correctMsg := "✅ Правильно!"
@@ -484,7 +492,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		correctMsg = correctMsg + "\n\n" + finalMsg
 
 		if step.CorrectAnswerImage != "" {
-			log.Printf("[HANDLER] Sending final photo to user %d", userID)
+			// log.Printf("[HANDLER] Sending final photo to user %d", userID)
 			_, err := h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
 				ChatID:          userID,
 				Photo:           &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
@@ -517,7 +525,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	}
 
 	if step.CorrectAnswerImage != "" {
-		log.Printf("[HANDLER] Sending correct answer photo to user %d", userID)
+		// log.Printf("[HANDLER] Sending correct answer photo to user %d", userID)
 		_, err := h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID:          userID,
 			Photo:           &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
@@ -535,7 +543,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 			}, effectID)
 		}
 	} else {
-		log.Printf("[HANDLER] Sending correct answer message to user %d: %s", userID, correctMsg)
+		// log.Printf("[HANDLER] Sending correct answer message to user %d: %s", userID, correctMsg)
 		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 			ChatID:      userID,
 			Text:        correctMsg,
@@ -543,7 +551,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		}, effectID)
 	}
 
-	log.Printf("[HANDLER] handleCorrectAnswer completed for user %d", userID)
+	// log.Printf("[HANDLER] handleCorrectAnswer completed for user %d", userID)
 }
 
 func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOrder int) {
@@ -666,10 +674,10 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 }
 
 func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels.CallbackQuery) {
-	log.Printf("[ADMIN_DECISION] starting with data: %s", callback.Data)
+	// log.Printf("[ADMIN_DECISION] starting with data: %s", callback.Data)
 
 	parts := strings.Split(callback.Data, ":")
-	log.Printf("[ADMIN_DECISION] parts: %v", parts)
+	// log.Printf("[ADMIN_DECISION] parts: %v", parts)
 
 	if len(parts) != 3 {
 		log.Printf("[ADMIN_DECISION] invalid parts length: %d", len(parts))
@@ -680,7 +688,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 	userID, _ := parseInt64(parts[1])
 	stepID, _ := parseInt64(parts[2])
 
-	log.Printf("[ADMIN_DECISION] action=%s userID=%d stepID=%d", action, userID, stepID)
+	// log.Printf("[ADMIN_DECISION] action=%s userID=%d stepID=%d", action, userID, stepID)
 
 	if userID == 0 || stepID == 0 {
 		log.Printf("[ADMIN_DECISION] invalid userID or stepID")
@@ -699,7 +707,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 		return
 	}
 
-	log.Printf("[ADMIN_DECISION] found progress and step, proceeding with action: %s", action)
+	// log.Printf("[ADMIN_DECISION] found progress and step, proceeding with action: %s", action)
 
 	// user, _ := h.userRepo.GetByID(userID)
 	// displayName := fmt.Sprintf("[%d]", userID)

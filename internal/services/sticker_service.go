@@ -51,7 +51,7 @@ func (s *StickerService) getStickerAssetPath(achievementKey string) string {
 
 func (s *StickerService) readStickerFile(achievementKey string) ([]byte, error) {
 	assetPath := s.getStickerAssetPath(achievementKey)
-	log.Printf("[STICKER_SERVICE] Reading sticker file: %s", assetPath)
+	// log.Printf("[STICKER_SERVICE] Reading sticker file: %s", assetPath)
 
 	data, err := stickerAssets.ReadFile(assetPath)
 	if err != nil {
@@ -59,7 +59,7 @@ func (s *StickerService) readStickerFile(achievementKey string) ([]byte, error) 
 		return nil, err
 	}
 
-	log.Printf("[STICKER_SERVICE] Successfully read %d bytes from %s", len(data), assetPath)
+	// log.Printf("[STICKER_SERVICE] Successfully read %d bytes from %s", len(data), assetPath)
 	return data, nil
 }
 
@@ -95,7 +95,7 @@ func (s *StickerService) createStickerPack(ctx context.Context, userID int64, ac
 	_, err = s.bot.CreateNewStickerSet(ctx, params)
 	if err != nil {
 		if strings.Contains(err.Error(), "STICKER_SET_NAME_OCCUPIED") {
-			log.Printf("[STICKER_SERVICE] Sticker pack %s already exists, updating DB", packName)
+			// log.Printf("[STICKER_SERVICE] Sticker pack %s already exists, updating DB", packName)
 			if dbErr := s.stickerPackRepo.Create(userID, packName); dbErr != nil {
 				log.Printf("[STICKER_SERVICE] Failed to update DB for existing pack: %v", dbErr)
 			}
@@ -110,7 +110,7 @@ func (s *StickerService) createStickerPack(ctx context.Context, userID int64, ac
 		return "", fmt.Errorf("failed to save sticker pack: %w", err)
 	}
 
-	log.Printf("[STICKER_SERVICE] Created sticker pack %s for user %d", packName, userID)
+	// log.Printf("[STICKER_SERVICE] Created sticker pack %s for user %d", packName, userID)
 	return s.getLastStickerFileID(ctx, packName), nil
 }
 
@@ -132,14 +132,14 @@ func (s *StickerService) addStickerToSet(ctx context.Context, userID int64, achi
 	if err != nil {
 		if strings.Contains(err.Error(), "STICKER_EMOJI_INVALID") ||
 			strings.Contains(err.Error(), "STICKERS_TOO_MUCH") {
-			log.Printf("[STICKER_SERVICE] Cannot add sticker: %v", err)
+			// log.Printf("[STICKER_SERVICE] Cannot add sticker: %v", err)
 			return "", nil
 		}
 		log.Printf("[STICKER_SERVICE] Failed to add sticker to set: %v", err)
 		return "", fmt.Errorf("failed to add sticker: %w", err)
 	}
 
-	log.Printf("[STICKER_SERVICE] Added sticker %s to pack %s", achievementKey, packName)
+	// log.Printf("[STICKER_SERVICE] Added sticker %s to pack %s", achievementKey, packName)
 	return s.getLastStickerFileID(ctx, packName), nil
 }
 
@@ -191,10 +191,10 @@ func (s *StickerService) addStickerToSetRaw(ctx context.Context, userID int64, p
 }
 
 func (s *StickerService) EnsureStickerPack(ctx context.Context, userID int64, achievementKey, emoji string) (string, error) {
-	log.Printf("[STICKER_SERVICE] EnsureStickerPack called for user %d, achievement %s, emoji %s", userID, achievementKey, emoji)
+	// log.Printf("[STICKER_SERVICE] EnsureStickerPack called for user %d, achievement %s, emoji %s", userID, achievementKey, emoji)
 
 	if !s.stickerExists(achievementKey) {
-		log.Printf("[STICKER_SERVICE] Sticker file not found: %s", achievementKey)
+		// log.Printf("[STICKER_SERVICE] Sticker file not found: %s", achievementKey)
 		return "", nil
 	}
 
@@ -204,18 +204,18 @@ func (s *StickerService) EnsureStickerPack(ctx context.Context, userID int64, ac
 		return "", nil
 	}
 
-	log.Printf("[STICKER_SERVICE] User %d sticker pack exists: %v", userID, exists)
+	// log.Printf("[STICKER_SERVICE] User %d sticker pack exists: %v", userID, exists)
 
 	var stickerFileID string
 	if !exists {
-		log.Printf("[STICKER_SERVICE] Creating new sticker pack for user %d", userID)
+		// log.Printf("[STICKER_SERVICE] Creating new sticker pack for user %d", userID)
 		stickerFileID, err = s.createStickerPack(ctx, userID, achievementKey, emoji)
 		if err != nil {
 			log.Printf("[STICKER_SERVICE] Failed to create sticker pack: %v", err)
 			return "", nil
 		}
 	} else {
-		log.Printf("[STICKER_SERVICE] Adding sticker to existing pack for user %d", userID)
+		// log.Printf("[STICKER_SERVICE] Adding sticker to existing pack for user %d", userID)
 		stickerFileID, err = s.addStickerToSet(ctx, userID, achievementKey, emoji)
 		if err != nil {
 			log.Printf("[STICKER_SERVICE] Failed to add sticker to set: %v", err)
@@ -223,7 +223,7 @@ func (s *StickerService) EnsureStickerPack(ctx context.Context, userID int64, ac
 		}
 	}
 
-	log.Printf("[STICKER_SERVICE] EnsureStickerPack completed, fileID: %s", stickerFileID)
+	// log.Printf("[STICKER_SERVICE] EnsureStickerPack completed, fileID: %s", stickerFileID)
 	return stickerFileID, nil
 }
 
@@ -250,7 +250,7 @@ func (s *StickerService) stickerExistsInPack(ctx context.Context, packName, achi
 	targetEmoji := s.getAchievementEmoji(achievementKey)
 	for _, sticker := range stickerSet.Stickers {
 		if len(sticker.Emoji) > 0 && sticker.Emoji == targetEmoji {
-			log.Printf("[STICKER_SERVICE] Sticker for achievement %s already exists in pack %s", achievementKey, packName)
+			// log.Printf("[STICKER_SERVICE] Sticker for achievement %s already exists in pack %s", achievementKey, packName)
 			return true, sticker.FileID
 		}
 	}
@@ -261,9 +261,9 @@ func (s *StickerService) stickerExistsInPack(ctx context.Context, packName, achi
 func (s *StickerService) getAchievementEmoji(achievementKey string) string {
 	// Используем тот же маппинг что и в AchievementNotifier
 	achievementEmojis := map[string]string{
-		"pioneer":         "🥇",
-		"second_place":    "🥈",
-		"third_place":     "🥉",
+		"pioneer":         "🔥",
+		"second_place":    "🌟",
+		"third_place":     "💫",
 		"beginner_5":      "🌱",
 		"experienced_10":  "🌿",
 		"advanced_15":     "🌳",
@@ -291,6 +291,11 @@ func (s *StickerService) getAchievementEmoji(achievementKey string) string {
 		"super_collector": "🎁",
 		"super_brain":     "🧠",
 		"legend":          "👑",
+		"winner_1":        "🥇",
+		"winner_2":        "🥈",
+		"winner_3":        "🥉",
+		"restart":         "🔄",
+		"writer":          "✍️",
 	}
 
 	if emoji, ok := achievementEmojis[achievementKey]; ok {
@@ -301,7 +306,7 @@ func (s *StickerService) getAchievementEmoji(achievementKey string) string {
 
 func (s *StickerService) SendSticker(ctx context.Context, chatID int64, stickerFileID string) error {
 	if stickerFileID == "" {
-		log.Printf("[STICKER_SERVICE] SendSticker called with empty fileID for chat %d", chatID)
+		// log.Printf("[STICKER_SERVICE] SendSticker called with empty fileID for chat %d", chatID)
 		return nil
 	}
 
@@ -315,7 +320,7 @@ func (s *StickerService) SendSticker(ctx context.Context, chatID int64, stickerF
 	if err != nil {
 		log.Printf("[STICKER_SERVICE] Failed to send sticker to chat %d: %v", chatID, err)
 	} else {
-		log.Printf("[STICKER_SERVICE] Successfully sent sticker to chat %d", chatID)
+		// log.Printf("[STICKER_SERVICE] Successfully sent sticker to chat %d", chatID)
 	}
 
 	return err

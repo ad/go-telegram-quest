@@ -155,9 +155,9 @@ func TestAchievementNotifier_GetAchievementEmoji(t *testing.T) {
 		key      string
 		expected string
 	}{
-		{"pioneer", "🥇"},
-		{"second_place", "🥈"},
-		{"third_place", "🥉"},
+		{"pioneer", "🔥"},
+		{"second_place", "🌟"},
+		{"third_place", "💫"},
 		{"beginner_5", "🌱"},
 		{"winner", "🏆"},
 		{"lightning", "⚡"},

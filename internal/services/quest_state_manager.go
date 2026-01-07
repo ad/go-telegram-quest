@@ -48,7 +48,7 @@ func (m *QuestStateManager) GetCurrentState() (QuestState, error) {
 			log.Printf("[QUEST_STATE] No quest_state found in database, defaulting to not_started")
 			return QuestStateNotStarted, nil
 		}
-		log.Printf("[QUEST_STATE] Database error while getting quest state: %v, falling back to running state", err)
+		// log.Printf("[QUEST_STATE] Database error while getting quest state: %v, falling back to running state", err)
 		return QuestStateRunning, nil
 	}
 
@@ -64,7 +64,7 @@ func (m *QuestStateManager) GetCurrentState() (QuestState, error) {
 func (m *QuestStateManager) SetState(state QuestState) error {
 	if !m.isValidState(state) {
 		err := fmt.Errorf("invalid quest state: %s", state)
-		log.Printf("[QUEST_STATE] %v", err)
+		// log.Printf("[QUEST_STATE] %v", err)
 		return err
 	}
 
@@ -90,7 +90,7 @@ func (m *QuestStateManager) SetState(state QuestState) error {
 		}
 	}
 
-	log.Printf("[QUEST_STATE] Quest state changed to: %s", state)
+	// log.Printf("[QUEST_STATE] Quest state changed to: %s", state)
 	return nil
 }
 

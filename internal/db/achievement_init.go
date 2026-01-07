@@ -176,6 +176,46 @@ func getDefaultAchievements() []*models.Achievement {
 		IsActive: true,
 	})
 
+	// Winner position achievements
+	achievements = append(achievements, &models.Achievement{
+		Key:         "winner_1",
+		Name:        "1-й победитель",
+		Description: "Первый, кто завершил квест",
+		Category:    models.CategoryUnique,
+		Type:        models.TypeUnique,
+		IsUnique:    true,
+		Conditions: models.AchievementConditions{
+			CompletionPosition: intPtr(1),
+		},
+		IsActive: true,
+	})
+
+	achievements = append(achievements, &models.Achievement{
+		Key:         "winner_2",
+		Name:        "2-й победитель",
+		Description: "Второй, кто завершил квест",
+		Category:    models.CategoryUnique,
+		Type:        models.TypeUnique,
+		IsUnique:    true,
+		Conditions: models.AchievementConditions{
+			CompletionPosition: intPtr(2),
+		},
+		IsActive: true,
+	})
+
+	achievements = append(achievements, &models.Achievement{
+		Key:         "winner_3",
+		Name:        "3-й победитель",
+		Description: "Третий, кто завершил квест",
+		Category:    models.CategoryUnique,
+		Type:        models.TypeUnique,
+		IsUnique:    true,
+		Conditions: models.AchievementConditions{
+			CompletionPosition: intPtr(3),
+		},
+		IsActive: true,
+	})
+
 	// Progress-based achievements
 	achievements = append(achievements, &models.Achievement{
 		Key:         "beginner_5",
@@ -486,6 +526,32 @@ func getDefaultAchievements() []*models.Achievement {
 		IsUnique:    false,
 		Conditions: models.AchievementConditions{
 			PostCompletion: boolPtr(true),
+		},
+		IsActive: true,
+	})
+
+	achievements = append(achievements, &models.Achievement{
+		Key:         "restart",
+		Name:        "Начать с начала",
+		Description: "Прогресс был сброшен",
+		Category:    models.CategorySpecial,
+		Type:        models.TypeActionBased,
+		IsUnique:    false,
+		Conditions: models.AchievementConditions{
+			ProgressReset: boolPtr(true),
+		},
+		IsActive: true,
+	})
+
+	achievements = append(achievements, &models.Achievement{
+		Key:         "writer",
+		Name:        "Писатель",
+		Description: "Отправил текст на фото-вопрос",
+		Category:    models.CategorySpecial,
+		Type:        models.TypeActionBased,
+		IsUnique:    false,
+		Conditions: models.AchievementConditions{
+			TextOnImageTask: boolPtr(true),
 		},
 		IsActive: true,
 	})

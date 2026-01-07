@@ -88,9 +88,9 @@ func main() {
 	answerChecker := services.NewAnswerChecker(answerRepo, progressRepo, userRepo)
 	msgManager := services.NewMessageManager(b, chatStateRepo, errorManager)
 	statsService := services.NewStatisticsServiceWithAchievements(dbQueue, stepRepo, progressRepo, userRepo, achievementRepo)
-	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, statsService)
-	questStateManager := services.NewQuestStateManager(settingsRepo)
 	achievementEngine := services.NewAchievementEngine(achievementRepo, userRepo, progressRepo, stepRepo, dbQueue)
+	userManager := services.NewUserManager(userRepo, stepRepo, progressRepo, answerRepo, chatStateRepo, achievementRepo, statsService, achievementEngine)
+	questStateManager := services.NewQuestStateManager(settingsRepo)
 	achievementNotifier := services.NewAchievementNotifier(b, achievementRepo, msgManager, stickerService)
 	achievementService := services.NewAchievementService(achievementRepo, userRepo)
 

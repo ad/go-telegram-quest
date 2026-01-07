@@ -2,6 +2,7 @@ package services
 
 import (
 	"database/sql"
+	"log"
 	"time"
 
 	"github.com/ad/go-telegram-quest/internal/db"
@@ -64,22 +65,26 @@ type QuestStatistics struct {
 }
 
 type UserManager struct {
-	userRepo       *db.UserRepository
-	stepRepo       *db.StepRepository
-	progressRepo   *db.ProgressRepository
-	answerRepo     *db.AnswerRepository
-	chatStateRepo  *db.ChatStateRepository
-	statisticsCalc *UserStatisticsCalculator
+	userRepo          *db.UserRepository
+	stepRepo          *db.StepRepository
+	progressRepo      *db.ProgressRepository
+	answerRepo        *db.AnswerRepository
+	chatStateRepo     *db.ChatStateRepository
+	achievementRepo   *db.AchievementRepository
+	statisticsCalc    *UserStatisticsCalculator
+	achievementEngine *AchievementEngine
 }
 
-func NewUserManager(userRepo *db.UserRepository, stepRepo *db.StepRepository, progressRepo *db.ProgressRepository, answerRepo *db.AnswerRepository, chatStateRepo *db.ChatStateRepository, statisticsService *StatisticsService) *UserManager {
+func NewUserManager(userRepo *db.UserRepository, stepRepo *db.StepRepository, progressRepo *db.ProgressRepository, answerRepo *db.AnswerRepository, chatStateRepo *db.ChatStateRepository, achievementRepo *db.AchievementRepository, statisticsService *StatisticsService, achievementEngine *AchievementEngine) *UserManager {
 	return &UserManager{
-		userRepo:       userRepo,
-		stepRepo:       stepRepo,
-		progressRepo:   progressRepo,
-		answerRepo:     answerRepo,
-		chatStateRepo:  chatStateRepo,
-		statisticsCalc: NewUserStatisticsCalculator(answerRepo, progressRepo, statisticsService),
+		userRepo:          userRepo,
+		stepRepo:          stepRepo,
+		progressRepo:      progressRepo,
+		answerRepo:        answerRepo,
+		chatStateRepo:     chatStateRepo,
+		achievementRepo:   achievementRepo,
+		statisticsCalc:    NewUserStatisticsCalculator(answerRepo, progressRepo, statisticsService),
+		achievementEngine: achievementEngine,
 	}
 }
 
@@ -194,7 +199,38 @@ func (m *UserManager) GetUserDetails(userID int64) (*UserDetails, error) {
 	}, nil
 }
 
+// Achievements that should be preserved during progress reset
+var PreservedAchievements = []string{
+	"winner_1",
+	"winner_2",
+	"winner_3",
+	"restart",
+	"cheater",
+}
+
 func (m *UserManager) ResetUserProgress(userID int64) error {
+	// Award restart achievement before clearing data
+	if m.achievementEngine != nil {
+		_, err := m.achievementEngine.OnProgressReset(userID)
+		if err != nil {
+			log.Printf("[USER_MANAGER] Error awarding restart achievement for user %d: %v", userID, err)
+		}
+	}
+
+	// Get restart achievement ID for preservation
+	restartAchievementID, err := m.getRestartAchievementID(userID)
+	if err != nil {
+		log.Printf("[USER_MANAGER] Error getting restart achievement ID for user %d: %v", userID, err)
+	}
+
+	// First, get achievements that should be preserved
+	preservedAchievements, err := m.getPreservedAchievements(userID)
+	if err != nil {
+		log.Printf("[USER_MANAGER] Error getting preserved achievements for user %d: %v", userID, err)
+		// Continue with reset even if we can't preserve achievements
+	}
+
+	// Clear user progress, answers, achievements, and chat state
 	if err := m.progressRepo.DeleteUserProgress(userID); err != nil {
 		return err
 	}
@@ -203,10 +239,90 @@ func (m *UserManager) ResetUserProgress(userID int64) error {
 		return err
 	}
 
+	// Delete all user achievements
+	if err := m.achievementRepo.DeleteUserAchievements(userID); err != nil {
+		return err
+	}
+
 	if err := m.chatStateRepo.Clear(userID); err != nil {
 		return err
 	}
 
+	// Restore preserved achievements
+	if len(preservedAchievements) > 0 {
+		if err := m.restorePreservedAchievements(userID, preservedAchievements); err != nil {
+			log.Printf("[USER_MANAGER] Error restoring preserved achievements for user %d: %v", userID, err)
+			// Don't fail the reset if we can't restore achievements
+		}
+	}
+
+	// Re-assign restart achievement if it was just awarded
+	if restartAchievementID > 0 {
+		err := m.preserveAchievementOnReset(userID, restartAchievementID)
+		if err != nil {
+			log.Printf("[USER_MANAGER] Error preserving restart achievement for user %d: %v", userID, err)
+		}
+	}
+
+	return nil
+}
+
+func (m *UserManager) getRestartAchievementID(userID int64) (int64, error) {
+	achievement, err := m.achievementRepo.GetByKey("restart")
+	if err != nil {
+		return 0, err
+	}
+
+	hasAchievement, err := m.achievementRepo.HasUserAchievement(userID, "restart")
+	if err != nil {
+		return 0, err
+	}
+
+	if hasAchievement {
+		return achievement.ID, nil
+	}
+
+	return 0, nil
+}
+
+func (m *UserManager) preserveAchievementOnReset(userID int64, achievementID int64) error {
+	return m.achievementRepo.AssignToUser(userID, achievementID, time.Now(), false)
+}
+
+func (m *UserManager) getPreservedAchievements(userID int64) ([]models.UserAchievement, error) {
+	userAchievements, err := m.achievementRepo.GetUserAchievements(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	var preserved []models.UserAchievement
+	for _, ua := range userAchievements {
+		achievement, err := m.achievementRepo.GetByID(ua.AchievementID)
+		if err != nil {
+			continue
+		}
+
+		// Check if this achievement should be preserved
+		for _, preservedKey := range PreservedAchievements {
+			if achievement.Key == preservedKey {
+				preserved = append(preserved, *ua)
+				break
+			}
+		}
+	}
+
+	return preserved, nil
+}
+
+func (m *UserManager) restorePreservedAchievements(userID int64, achievements []models.UserAchievement) error {
+	for _, ua := range achievements {
+		err := m.achievementRepo.AssignToUser(userID, ua.AchievementID, ua.EarnedAt, ua.IsRetroactive)
+		if err != nil {
+			log.Printf("[USER_MANAGER] Error restoring achievement %d to user %d: %v", ua.AchievementID, userID, err)
+			continue
+		}
+		// log.Printf("[USER_MANAGER] Restored preserved achievement %d to user %d", ua.AchievementID, userID)
+	}
 	return nil
 }
 

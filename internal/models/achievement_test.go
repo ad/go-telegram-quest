@@ -22,6 +22,9 @@ func TestProperty1_AchievementDataPersistence(t *testing.T) {
 			PhotoOnTextTask:       boolPtr(rapid.Bool().Draw(t, "photoOnTextTask")),
 			InactiveHours:         intPtr(rapid.IntRange(1, 168).Draw(t, "inactiveHours")),
 			PostCompletion:        boolPtr(rapid.Bool().Draw(t, "postCompletion")),
+			CompletionPosition:    intPtr(rapid.IntRange(1, 10).Draw(t, "completionPosition")),
+			ProgressReset:         boolPtr(rapid.Bool().Draw(t, "progressReset")),
+			TextOnImageTask:       boolPtr(rapid.Bool().Draw(t, "textOnImageTask")),
 		}
 
 		if rapid.Bool().Draw(t, "hasSpecificAnswer") {
@@ -92,6 +95,15 @@ func TestProperty1_AchievementDataPersistence(t *testing.T) {
 		}
 		if !compareBoolPtr(conditions.PostCompletion, parsed.PostCompletion) {
 			t.Fatalf("PostCompletion mismatch")
+		}
+		if !compareIntPtr(conditions.CompletionPosition, parsed.CompletionPosition) {
+			t.Fatalf("CompletionPosition mismatch")
+		}
+		if !compareBoolPtr(conditions.ProgressReset, parsed.ProgressReset) {
+			t.Fatalf("ProgressReset mismatch")
+		}
+		if !compareBoolPtr(conditions.TextOnImageTask, parsed.TextOnImageTask) {
+			t.Fatalf("TextOnImageTask mismatch")
 		}
 	})
 }

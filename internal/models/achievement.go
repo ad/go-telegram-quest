@@ -42,6 +42,9 @@ type AchievementConditions struct {
 	PhotoOnTextTask       *bool    `json:"photo_on_text_task,omitempty"`
 	InactiveHours         *int     `json:"inactive_hours,omitempty"`
 	PostCompletion        *bool    `json:"post_completion,omitempty"`
+	CompletionPosition    *int     `json:"completion_position,omitempty"`
+	ProgressReset         *bool    `json:"progress_reset,omitempty"`
+	TextOnImageTask       *bool    `json:"text_on_image_task,omitempty"`
 }
 
 func (c *AchievementConditions) ToJSON() (string, error) {
