@@ -143,12 +143,12 @@ func main() {
 
 	// Process retroactive winner achievements
 	go func() {
-		log.Printf("Starting retroactive processing for winner achievements...")
+		// log.Printf("Starting retroactive processing for winner achievements...")
 		for _, achievementKey := range []string{"winner_1", "winner_2", "winner_3", "hint_30", "writer"} {
 			if _, err := retroactiveProcessor.ProcessAchievementSync(achievementKey, 50); err != nil {
 				log.Printf("Failed to process retroactive achievement %s: %v", achievementKey, err)
 			} else {
-				log.Printf("Successfully processed retroactive achievement: %s", achievementKey)
+				// log.Printf("Successfully processed retroactive achievement: %s", achievementKey)
 			}
 		}
 	}()

@@ -129,8 +129,10 @@ func (p *RetroactiveProcessor) processInBackground(ctx context.Context, achievem
 		}
 	}
 
-	log.Printf("[RETROACTIVE_PROCESSOR] Completed processing achievement %s: %d users processed, %d awarded",
-		achievementKey, p.progress[achievementKey].ProcessedUsers, p.progress[achievementKey].AwardedCount)
+	if p.progress[achievementKey].AwardedCount > 0 {
+		log.Printf("[RETROACTIVE_PROCESSOR] Completed processing achievement %s: %d users processed, %d awarded",
+			achievementKey, p.progress[achievementKey].ProcessedUsers, p.progress[achievementKey].AwardedCount)
+	}
 }
 
 func (p *RetroactiveProcessor) processBatch(ctx context.Context, achievementKey string, achievement *models.Achievement, users []*models.User) {
