@@ -21,8 +21,8 @@ func (r *AdminStateRepository) Save(state *models.AdminState) error {
 		answersJSON, _ := json.Marshal(state.NewStepAnswers)
 
 		_, err := db.Exec(`
-			INSERT INTO admin_state (user_id, current_state, editing_step_id, new_step_text, new_step_type, new_step_images, new_step_answers, editing_setting, new_hint_text)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO admin_state (user_id, current_state, editing_step_id, new_step_text, new_step_type, new_step_images, new_step_answers, editing_setting, new_hint_text, target_user_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(user_id) DO UPDATE SET
 				current_state = excluded.current_state,
 				editing_step_id = excluded.editing_step_id,
@@ -31,8 +31,9 @@ func (r *AdminStateRepository) Save(state *models.AdminState) error {
 				new_step_images = excluded.new_step_images,
 				new_step_answers = excluded.new_step_answers,
 				editing_setting = excluded.editing_setting,
-				new_hint_text = excluded.new_hint_text
-		`, state.UserID, state.CurrentState, state.EditingStepID, state.NewStepText, state.NewStepType, string(imagesJSON), string(answersJSON), state.EditingSetting, state.NewHintText)
+				new_hint_text = excluded.new_hint_text,
+				target_user_id = excluded.target_user_id
+		`, state.UserID, state.CurrentState, state.EditingStepID, state.NewStepText, state.NewStepType, string(imagesJSON), string(answersJSON), state.EditingSetting, state.NewHintText, state.TargetUserID)
 		return nil, err
 	})
 	return err
@@ -41,13 +42,13 @@ func (r *AdminStateRepository) Save(state *models.AdminState) error {
 func (r *AdminStateRepository) Get(userID int64) (*models.AdminState, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		row := db.QueryRow(`
-			SELECT user_id, current_state, editing_step_id, new_step_text, new_step_type, new_step_images, new_step_answers, editing_setting, COALESCE(new_hint_text, '')
+			SELECT user_id, current_state, editing_step_id, new_step_text, new_step_type, new_step_images, new_step_answers, editing_setting, COALESCE(new_hint_text, ''), COALESCE(target_user_id, 0)
 			FROM admin_state WHERE user_id = ?
 		`, userID)
 
 		var state models.AdminState
 		var imagesJSON, answersJSON string
-		err := row.Scan(&state.UserID, &state.CurrentState, &state.EditingStepID, &state.NewStepText, &state.NewStepType, &imagesJSON, &answersJSON, &state.EditingSetting, &state.NewHintText)
+		err := row.Scan(&state.UserID, &state.CurrentState, &state.EditingStepID, &state.NewStepText, &state.NewStepType, &imagesJSON, &answersJSON, &state.EditingSetting, &state.NewHintText, &state.TargetUserID)
 		if err != nil {
 			return nil, err
 		}

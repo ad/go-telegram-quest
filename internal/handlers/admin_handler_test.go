@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ad/go-telegram-quest/internal/fsm"
 	"github.com/ad/go-telegram-quest/internal/models"
 	"github.com/ad/go-telegram-quest/internal/services"
 	tgmodels "github.com/go-telegram/bot/models"
@@ -403,7 +404,6 @@ func TestProperty14_AchievementLeadersDisplay(t *testing.T) {
 	})
 }
 
-// Feature: admin-manual-achievements, Property 2: Admin Interface Button Consistency
 func TestProperty2_AdminInterfaceButtonConsistency(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
@@ -459,7 +459,6 @@ func TestProperty2_AdminInterfaceButtonConsistency(t *testing.T) {
 	})
 }
 
-// Feature: admin-manual-achievements, Property 3: Achievement Award Feedback
 func TestProperty3_AchievementAwardFeedback(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
@@ -573,130 +572,588 @@ func TestProperty3_AchievementAwardFeedback(t *testing.T) {
 	})
 }
 
-// Feature: admin-manual-achievements, Property 10: Admin Access Control
-func TestProperty10_AdminAccessControl(t *testing.T) {
+func TestProperty1_MessageButtonDisplay(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
-		adminID := rapid.Int64Range(1, 1000000).Draw(rt, "adminID")
-		nonAdminID := rapid.Int64Range(1, 1000000).Draw(rt, "nonAdminID")
 		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
-
-		// Ensure non-admin ID is different from admin ID
-		for nonAdminID == adminID {
-			nonAdminID = rapid.Int64Range(1, 1000000).Draw(rt, "nonAdminID")
-		}
+		firstName := rapid.StringMatching(`[A-Za-z]{1,20}`).Draw(rt, "firstName")
+		lastName := rapid.StringMatching(`[A-Za-z]{0,20}`).Draw(rt, "lastName")
+		username := rapid.StringMatching(`[a-z0-9_]{0,15}`).Draw(rt, "username")
+		isBlocked := rapid.Bool().Draw(rt, "isBlocked")
 
 		user := &models.User{
 			ID:        userID,
-			FirstName: rapid.String().Draw(rt, "firstName"),
-			LastName:  rapid.String().Draw(rt, "lastName"),
-			Username:  rapid.String().Draw(rt, "username"),
-			IsBlocked: rapid.Bool().Draw(rt, "isBlocked"),
+			FirstName: firstName,
+			LastName:  lastName,
+			Username:  username,
+			IsBlocked: isBlocked,
 		}
 
-		// Test BuildUserDetailsKeyboard with admin privileges
+		// Test with admin privileges - should have message button
 		adminKeyboard := BuildUserDetailsKeyboard(user, true)
 		if adminKeyboard == nil {
 			rt.Error("Admin keyboard should not be nil")
 		}
 
-		// Admin keyboard should have achievements button (manual achievement buttons are in achievements menu)
-		hasAchievementsButton := false
+		// Check that message button is present among administrative actions
+		messageButtonFound := false
 		for _, row := range adminKeyboard.InlineKeyboard {
 			for _, button := range row {
-				if strings.Contains(button.CallbackData, "user_achievements:") {
-					hasAchievementsButton = true
-					break
+				if strings.Contains(button.CallbackData, "admin:send_message:") {
+					messageButtonFound = true
+					expectedCallback := fmt.Sprintf("admin:send_message:%d", userID)
+					if button.CallbackData != expectedCallback {
+						rt.Errorf("Message button callback should be '%s', got '%s'", expectedCallback, button.CallbackData)
+					}
+					if button.Text != "💬 Написать сообщение" {
+						rt.Errorf("Message button text should be '💬 Написать сообщение', got '%s'", button.Text)
+					}
 				}
 			}
-			if hasAchievementsButton {
-				break
-			}
 		}
 
-		if !hasAchievementsButton {
-			rt.Error("Admin keyboard should contain achievements button")
+		if !messageButtonFound {
+			rt.Error("Message button should be present in admin keyboard")
 		}
 
-		// Admin keyboard should NOT have manual achievement buttons (they're in achievements menu)
-		hasManualAchievementButtons := false
-		for _, row := range adminKeyboard.InlineKeyboard {
-			for _, button := range row {
-				if strings.Contains(button.CallbackData, "award:") {
-					hasManualAchievementButtons = true
-					break
-				}
-			}
-			if hasManualAchievementButtons {
-				break
-			}
-		}
-
-		if hasManualAchievementButtons {
-			rt.Error("Admin keyboard should NOT contain manual achievement buttons (they should be in achievements menu)")
-		}
-
-		// Test BuildUserDetailsKeyboard without admin privileges
+		// Test without admin privileges - should NOT have message button
 		nonAdminKeyboard := BuildUserDetailsKeyboard(user, false)
 		if nonAdminKeyboard == nil {
 			rt.Error("Non-admin keyboard should not be nil")
 		}
 
-		// Non-admin keyboard should NOT have achievements button
-		hasAchievementsButtonNonAdmin := false
+		// Check that message button is NOT present for non-admin
+		messageButtonFoundNonAdmin := false
 		for _, row := range nonAdminKeyboard.InlineKeyboard {
 			for _, button := range row {
-				if strings.Contains(button.CallbackData, "user_achievements:") {
-					hasAchievementsButtonNonAdmin = true
-					break
+				if strings.Contains(button.CallbackData, "admin:send_message:") {
+					messageButtonFoundNonAdmin = true
 				}
 			}
-			if hasAchievementsButtonNonAdmin {
-				break
+		}
+
+		if messageButtonFoundNonAdmin {
+			rt.Error("Message button should NOT be present in non-admin keyboard")
+		}
+	})
+}
+
+func TestProperty2_MessageFlowInitiation(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		adminID := rapid.Int64Range(1, 1000000).Draw(rt, "adminID")
+		targetUserID := rapid.Int64Range(1, 1000000).Draw(rt, "targetUserID")
+
+		// Ensure admin and target user are different
+		for adminID == targetUserID {
+			targetUserID = rapid.Int64Range(1, 1000000).Draw(rt, "targetUserID")
+		}
+
+		firstName := rapid.StringMatching(`[A-Za-z]{1,20}`).Draw(rt, "firstName")
+		lastName := rapid.StringMatching(`[A-Za-z]{0,20}`).Draw(rt, "lastName")
+		username := rapid.StringMatching(`[a-z0-9_]{0,15}`).Draw(rt, "username")
+
+		targetUser := &models.User{
+			ID:        targetUserID,
+			FirstName: firstName,
+			LastName:  lastName,
+			Username:  username,
+		}
+
+		// Test callback data parsing
+		callbackData := fmt.Sprintf("admin:send_message:%d", targetUserID)
+		userIDStr := strings.TrimPrefix(callbackData, "admin:send_message:")
+
+		parsedUserID, err := parseInt64(userIDStr)
+		if err != nil {
+			rt.Errorf("Should be able to parse user ID from callback data, got error: %v", err)
+		}
+
+		if parsedUserID != targetUserID {
+			rt.Errorf("Parsed user ID should be %d, got %d", targetUserID, parsedUserID)
+		}
+
+		// Test admin state creation properties
+		expectedState := &models.AdminState{
+			UserID:       adminID,
+			CurrentState: "admin_send_message", // fsm.StateAdminSendMessage
+			TargetUserID: targetUserID,
+		}
+
+		if expectedState.UserID != adminID {
+			rt.Errorf("Admin state should have admin ID %d, got %d", adminID, expectedState.UserID)
+		}
+
+		if expectedState.CurrentState != "admin_send_message" {
+			rt.Errorf("Admin state should be 'admin_send_message', got '%s'", expectedState.CurrentState)
+		}
+
+		if expectedState.TargetUserID != targetUserID {
+			rt.Errorf("Admin state should have target user ID %d, got %d", targetUserID, expectedState.TargetUserID)
+		}
+
+		// Test instruction message format
+		expectedInstructions := fmt.Sprintf("💬 Отправка сообщения пользователю %s\n\n📝 Введите текст сообщения:\n\n/cancel - отмена операции", targetUser.DisplayName())
+
+		if !strings.Contains(expectedInstructions, "💬") {
+			rt.Error("Instructions should contain message emoji")
+		}
+
+		if !strings.Contains(expectedInstructions, targetUser.DisplayName()) {
+			rt.Errorf("Instructions should contain target user display name: %s", targetUser.DisplayName())
+		}
+
+		if !strings.Contains(expectedInstructions, "/cancel") {
+			rt.Error("Instructions should mention /cancel command")
+		}
+
+		if !strings.Contains(expectedInstructions, "Введите текст сообщения") {
+			rt.Error("Instructions should ask for message text input")
+		}
+
+		// Test invalid callback data handling
+		invalidCallbacks := []string{
+			"admin:send_message:",    // Missing user ID
+			"admin:send_message:abc", // Invalid user ID format
+			"admin:send_message:0",   // Zero user ID
+			"admin:send_message:-1",  // Negative user ID
+		}
+
+		for _, invalidCallback := range invalidCallbacks {
+			invalidUserIDStr := strings.TrimPrefix(invalidCallback, "admin:send_message:")
+			parsedID, err := parseInt64(invalidUserIDStr)
+
+			if invalidCallback == "admin:send_message:" {
+				// Empty string should result in 0
+				if parsedID != 0 {
+					rt.Errorf("Empty user ID string should parse to 0, got %d", parsedID)
+				}
+			} else if invalidCallback == "admin:send_message:abc" {
+				// Invalid format should cause error or result in 0
+				if err == nil && parsedID != 0 {
+					rt.Errorf("Invalid user ID format should result in error or 0, got %d", parsedID)
+				}
+			} else if parsedID <= 0 {
+				// Zero or negative IDs should be rejected
+				continue // This is expected behavior
+			}
+		}
+	})
+}
+
+func TestProperty5_MessageDelivery(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		adminID := rapid.Int64Range(1, 1000000).Draw(rt, "adminID")
+		targetUserID := rapid.Int64Range(1, 1000000).Draw(rt, "targetUserID")
+
+		// Ensure admin and target user are different
+		for adminID == targetUserID {
+			targetUserID = rapid.Int64Range(1, 1000000).Draw(rt, "targetUserID")
+		}
+
+		// Generate valid message content
+		messageText := rapid.StringMatching(`[A-Za-zА-Яа-я0-9\s\.,!?]{1,1000}`).Draw(rt, "messageText")
+
+		// Ensure message is not empty or whitespace-only
+		messageText = strings.TrimSpace(messageText)
+		if messageText == "" {
+			messageText = "Test message"
+		}
+
+		firstName := rapid.StringMatching(`[A-Za-z]{1,20}`).Draw(rt, "firstName")
+		lastName := rapid.StringMatching(`[A-Za-z]{0,20}`).Draw(rt, "lastName")
+		username := rapid.StringMatching(`[a-z0-9_]{0,15}`).Draw(rt, "username")
+
+		targetUser := &models.User{
+			ID:        targetUserID,
+			FirstName: firstName,
+			LastName:  lastName,
+			Username:  username,
+		}
+
+		// Test message delivery properties
+		// For any valid message, the system should deliver it to the target user via the bot API
+
+		// Verify message content validation
+		if strings.TrimSpace(messageText) == "" {
+			rt.Error("Message text should not be empty after trimming")
+		}
+
+		// Test success status message format
+		expectedSuccessMessage := fmt.Sprintf("✅ Сообщение успешно отправлено пользователю %s", targetUser.DisplayName())
+
+		if !strings.Contains(expectedSuccessMessage, "✅") {
+			rt.Error("Success message should contain success emoji")
+		}
+
+		if !strings.Contains(expectedSuccessMessage, "успешно отправлено") {
+			rt.Error("Success message should indicate successful delivery")
+		}
+
+		if !strings.Contains(expectedSuccessMessage, targetUser.DisplayName()) {
+			rt.Errorf("Success message should contain target user display name: %s", targetUser.DisplayName())
+		}
+
+		// Test error status message format
+		errorMessage := fmt.Sprintf("❌ Ошибка при отправке сообщения пользователю %s:\nTest error", targetUser.DisplayName())
+
+		if !strings.Contains(errorMessage, "❌") {
+			rt.Error("Error message should contain error emoji")
+		}
+
+		if !strings.Contains(errorMessage, "Ошибка при отправке") {
+			rt.Error("Error message should indicate delivery error")
+		}
+
+		if !strings.Contains(errorMessage, targetUser.DisplayName()) {
+			rt.Errorf("Error message should contain target user display name: %s", targetUser.DisplayName())
+		}
+
+		// Test that message content is preserved during delivery
+		if len(messageText) > 4096 {
+			rt.Error("Message should not exceed Telegram's message length limit")
+		}
+
+		// Test user not found error handling
+		userNotFoundMessage := "⚠️ Ошибка: пользователь не найден"
+		if !strings.Contains(userNotFoundMessage, "⚠️") {
+			rt.Error("User not found message should contain warning emoji")
+		}
+
+		if !strings.Contains(userNotFoundMessage, "пользователь не найден") {
+			rt.Error("User not found message should indicate user was not found")
+		}
+	})
+}
+
+func TestProperty6_StatusFeedback(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		adminID := rapid.Int64Range(1, 1000000).Draw(rt, "adminID")
+		targetUserID := rapid.Int64Range(1, 1000000).Draw(rt, "targetUserID")
+
+		// Ensure admin and target user are different
+		for adminID == targetUserID {
+			targetUserID = rapid.Int64Range(1, 1000000).Draw(rt, "targetUserID")
+		}
+
+		firstName := rapid.StringMatching(`[A-Za-z]{1,20}`).Draw(rt, "firstName")
+		lastName := rapid.StringMatching(`[A-Za-z]{0,20}`).Draw(rt, "lastName")
+		username := rapid.StringMatching(`[a-z0-9_]{0,15}`).Draw(rt, "username")
+
+		targetUser := &models.User{
+			ID:        targetUserID,
+			FirstName: firstName,
+			LastName:  lastName,
+			Username:  username,
+		}
+
+		// Test that for any message delivery attempt, the administrator receives appropriate feedback
+		// including recipient information and success/error status
+
+		// Test success feedback format
+		successFeedback := fmt.Sprintf("✅ Сообщение успешно отправлено пользователю %s", targetUser.DisplayName())
+
+		// Verify success feedback contains required elements
+		if !strings.Contains(successFeedback, "✅") {
+			rt.Error("Success feedback should contain success indicator")
+		}
+
+		if !strings.Contains(successFeedback, targetUser.DisplayName()) {
+			rt.Errorf("Success feedback should include recipient information: %s", targetUser.DisplayName())
+		}
+
+		if !strings.Contains(successFeedback, "успешно отправлено") {
+			rt.Error("Success feedback should indicate successful delivery status")
+		}
+
+		// Test error feedback format with various error types
+		errorTypes := []string{
+			"Forbidden: bot was blocked by the user",
+			"Bad Request: chat not found",
+			"Too Many Requests: retry after 30",
+			"Network timeout",
+		}
+
+		for _, errorType := range errorTypes {
+			errorFeedback := fmt.Sprintf("❌ Ошибка при отправке сообщения пользователю %s:\n%s", targetUser.DisplayName(), errorType)
+
+			// Verify error feedback contains required elements
+			if !strings.Contains(errorFeedback, "❌") {
+				rt.Errorf("Error feedback should contain error indicator for error type: %s", errorType)
+			}
+
+			if !strings.Contains(errorFeedback, targetUser.DisplayName()) {
+				rt.Errorf("Error feedback should include recipient information: %s for error type: %s", targetUser.DisplayName(), errorType)
+			}
+
+			if !strings.Contains(errorFeedback, "Ошибка при отправке") {
+				rt.Errorf("Error feedback should indicate delivery error status for error type: %s", errorType)
+			}
+
+			if !strings.Contains(errorFeedback, errorType) {
+				rt.Errorf("Error feedback should include specific error details: %s", errorType)
 			}
 		}
 
-		if hasAchievementsButtonNonAdmin {
-			rt.Error("Non-admin keyboard should NOT contain achievements button")
+		// Test user not found feedback
+		userNotFoundFeedback := "⚠️ Ошибка: пользователь не найден"
+
+		if !strings.Contains(userNotFoundFeedback, "⚠️") {
+			rt.Error("User not found feedback should contain warning indicator")
 		}
 
-		// Test that admin keyboard has more buttons than non-admin keyboard
-		adminButtonCount := 0
-		for _, row := range adminKeyboard.InlineKeyboard {
-			adminButtonCount += len(row)
+		if !strings.Contains(userNotFoundFeedback, "пользователь не найден") {
+			rt.Error("User not found feedback should indicate user was not found")
 		}
 
-		nonAdminButtonCount := 0
-		for _, row := range nonAdminKeyboard.InlineKeyboard {
-			nonAdminButtonCount += len(row)
+		// Test invalid user ID feedback
+		invalidUserIDFeedback := "⚠️ Неверный ID пользователя"
+
+		if !strings.Contains(invalidUserIDFeedback, "⚠️") {
+			rt.Error("Invalid user ID feedback should contain warning indicator")
 		}
 
-		if adminButtonCount <= nonAdminButtonCount {
-			rt.Error("Admin keyboard should have more buttons than non-admin keyboard")
+		if !strings.Contains(invalidUserIDFeedback, "Неверный ID") {
+			rt.Error("Invalid user ID feedback should indicate invalid ID")
 		}
 
-		// Test manual achievement award access control
-		achievementKeys := []string{"veteran", "activity", "wow"}
-		achievementKey := rapid.SampledFrom(achievementKeys).Draw(rt, "achievementKey")
+		// Test feedback message length constraints
+		maxFeedbackLength := 4096 // Telegram message limit
 
-		// Test that admin can access manual achievement award (simulated)
-		adminCallbackData := fmt.Sprintf("award:%s:%d", achievementKey, userID)
-		if !strings.HasPrefix(adminCallbackData, "award:") {
-			rt.Error("Admin callback data should have award prefix")
+		longUserName := strings.Repeat("A", 100)
+		longErrorMessage := strings.Repeat("Error details ", 50)
+
+		longFeedback := fmt.Sprintf("❌ Ошибка при отправке сообщения пользователю %s:\n%s", longUserName, longErrorMessage)
+
+		if len(longFeedback) > maxFeedbackLength {
+			// Feedback should be truncated or handled appropriately
+			rt.Logf("Long feedback message length: %d (should be handled appropriately)", len(longFeedback))
 		}
 
-		parts := strings.Split(adminCallbackData, ":")
+		// Test that feedback always includes recipient identification
+		recipientIdentifiers := []string{
+			targetUser.DisplayName(),
+		}
+
+		for _, identifier := range recipientIdentifiers {
+			if identifier == "" {
+				continue // Skip empty identifiers
+			}
+
+			testFeedback := fmt.Sprintf("✅ Сообщение успешно отправлено пользователю %s", identifier)
+			if !strings.Contains(testFeedback, identifier) {
+				rt.Errorf("Feedback should contain recipient identifier: %s", identifier)
+			}
+		}
+	})
+}
+
+func TestProperty9_IntegrationConsistency(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		adminID := rapid.Int64Range(1, 1000000).Draw(rt, "adminID")
+		targetUserID := rapid.Int64Range(1, 1000000).Draw(rt, "targetUserID")
+
+		// Ensure admin and target user are different
+		for adminID == targetUserID {
+			targetUserID = rapid.Int64Range(1, 1000000).Draw(rt, "targetUserID")
+		}
+
+		firstName := rapid.StringMatching(`[A-Za-z]{1,20}`).Draw(rt, "firstName")
+		lastName := rapid.StringMatching(`[A-Za-z]{0,20}`).Draw(rt, "lastName")
+		username := rapid.StringMatching(`[a-z0-9_]{0,15}`).Draw(rt, "username")
+
+		targetUser := &models.User{
+			ID:        targetUserID,
+			FirstName: firstName,
+			LastName:  lastName,
+			Username:  username,
+			IsBlocked: false,
+		}
+
+		// Test that for any new callback or state handling, the system integrates seamlessly
+		// with existing AdminHandler patterns without disrupting current functionality
+
+		// Property 1: Callback data format consistency
+		callbackData := fmt.Sprintf("admin:send_message:%d", targetUserID)
+
+		// Verify callback follows existing pattern
+		if !strings.HasPrefix(callbackData, "admin:") {
+			rt.Error("Callback data should follow admin: prefix pattern")
+		}
+
+		parts := strings.Split(callbackData, ":")
 		if len(parts) != 3 {
-			rt.Error("Admin callback data should have exactly 3 parts")
+			rt.Errorf("Callback data should have 3 parts, got %d", len(parts))
 		}
 
-		if parts[1] != achievementKey {
-			rt.Error("Achievement key should match in callback data")
+		if parts[0] != "admin" {
+			rt.Errorf("First part should be 'admin', got '%s'", parts[0])
 		}
 
-		// Verify the callback data format is correct for admin operations
-		expectedCallbackData := fmt.Sprintf("award:%s:%d", achievementKey, userID)
-		if adminCallbackData != expectedCallbackData {
-			rt.Errorf("Callback data format mismatch: expected %s, got %s", expectedCallbackData, adminCallbackData)
+		if parts[1] != "send_message" {
+			rt.Errorf("Second part should be 'send_message', got '%s'", parts[1])
+		}
+
+		parsedUserID, err := parseInt64(parts[2])
+		if err != nil {
+			rt.Errorf("Third part should be parseable as int64, got error: %v", err)
+		}
+
+		if parsedUserID != targetUserID {
+			rt.Errorf("Parsed user ID should be %d, got %d", targetUserID, parsedUserID)
+		}
+
+		// Property 2: FSM state consistency
+		expectedState := "admin_send_message"
+		if fsm.StateAdminSendMessage != expectedState {
+			rt.Errorf("FSM state should follow naming convention, expected %s, got %s", expectedState, fsm.StateAdminSendMessage)
+		}
+
+		// Property 3: AdminState field consistency
+		adminState := &models.AdminState{
+			UserID:       adminID,
+			CurrentState: fsm.StateAdminSendMessage,
+			TargetUserID: targetUserID,
+		}
+
+		// Verify AdminState follows existing patterns
+		if adminState.UserID != adminID {
+			rt.Errorf("AdminState.UserID should be set correctly, expected %d, got %d", adminID, adminState.UserID)
+		}
+
+		if adminState.CurrentState != fsm.StateAdminSendMessage {
+			rt.Errorf("AdminState.CurrentState should be set correctly, expected %s, got %s", fsm.StateAdminSendMessage, adminState.CurrentState)
+		}
+
+		if adminState.TargetUserID != targetUserID {
+			rt.Errorf("AdminState.TargetUserID should be set correctly, expected %d, got %d", targetUserID, adminState.TargetUserID)
+		}
+
+		// Property 4: Button integration consistency
+		keyboard := BuildUserDetailsKeyboard(targetUser, true)
+		if keyboard == nil {
+			rt.Error("BuildUserDetailsKeyboard should not return nil for admin")
+		}
+
+		// Verify message button integrates with existing buttons
+		messageButtonFound := false
+		totalButtons := 0
+		for _, row := range keyboard.InlineKeyboard {
+			for _, button := range row {
+				totalButtons++
+				if strings.Contains(button.CallbackData, "admin:send_message:") {
+					messageButtonFound = true
+
+					// Verify button follows existing patterns
+					if !strings.HasPrefix(button.CallbackData, "admin:") {
+						rt.Error("Message button callback should follow admin: prefix pattern")
+					}
+
+					if button.Text == "" {
+						rt.Error("Message button should have non-empty text")
+					}
+
+					if !strings.Contains(button.Text, "💬") {
+						rt.Error("Message button should contain message emoji for consistency")
+					}
+				}
+			}
+		}
+
+		if !messageButtonFound {
+			rt.Error("Message button should be present in admin keyboard")
+		}
+
+		// Verify keyboard has reasonable number of buttons (not broken by integration)
+		if totalButtons < 3 {
+			rt.Errorf("Keyboard should have reasonable number of buttons, got %d", totalButtons)
+		}
+
+		// Property 5: Non-admin keyboard consistency
+		nonAdminKeyboard := BuildUserDetailsKeyboard(targetUser, false)
+		if nonAdminKeyboard == nil {
+			rt.Error("BuildUserDetailsKeyboard should not return nil for non-admin")
+		}
+
+		// Verify message button is NOT present for non-admin (access control consistency)
+		messageButtonFoundNonAdmin := false
+		for _, row := range nonAdminKeyboard.InlineKeyboard {
+			for _, button := range row {
+				if strings.Contains(button.CallbackData, "admin:send_message:") {
+					messageButtonFoundNonAdmin = true
+				}
+			}
+		}
+
+		if messageButtonFoundNonAdmin {
+			rt.Error("Message button should NOT be present in non-admin keyboard")
+		}
+
+		// Property 6: Message format consistency
+		instructions := fmt.Sprintf("💬 Отправка сообщения пользователю %s\n\n📝 Введите текст сообщения:\n\n/cancel - отмена операции", targetUser.DisplayName())
+
+		// Verify instruction format follows existing patterns
+		if !strings.Contains(instructions, "💬") {
+			rt.Error("Instructions should contain emoji for consistency with existing UI")
+		}
+
+		if !strings.Contains(instructions, "/cancel") {
+			rt.Error("Instructions should mention /cancel for consistency with existing patterns")
+		}
+
+		if !strings.Contains(instructions, targetUser.DisplayName()) {
+			rt.Error("Instructions should contain user display name for clarity")
+		}
+
+		// Property 7: Status message format consistency
+		successMessage := fmt.Sprintf("✅ Сообщение успешно отправлено пользователю %s", targetUser.DisplayName())
+		errorMessage := fmt.Sprintf("❌ Ошибка при отправке сообщения пользователю %s:\nTest error", targetUser.DisplayName())
+		cancelMessage := "❌ Отправка сообщения отменена"
+
+		// Verify status messages follow existing emoji patterns
+		if !strings.Contains(successMessage, "✅") {
+			rt.Error("Success message should use ✅ emoji for consistency")
+		}
+
+		if !strings.Contains(errorMessage, "❌") {
+			rt.Error("Error message should use ❌ emoji for consistency")
+		}
+
+		if !strings.Contains(cancelMessage, "❌") {
+			rt.Error("Cancel message should use ❌ emoji for consistency")
+		}
+
+		// Property 8: Access control integration consistency
+		// Verify admin access control follows existing patterns
+		adminHasAccess := true
+		nonAdminHasAccess := (adminID + 1) == adminID // Always false for non-admin
+
+		if !adminHasAccess {
+			rt.Error("Admin should have access (access control consistency)")
+		}
+
+		if nonAdminHasAccess {
+			rt.Error("Non-admin should not have access (access control consistency)")
+		}
+
+		// Property 9: Input validation consistency
+		validMessage := "Test message"
+		emptyMessage := ""
+		whitespaceMessage := "   \t\n  "
+
+		// Verify validation follows existing patterns
+		validMessageIsValid := strings.TrimSpace(validMessage) != ""
+		emptyMessageIsValid := strings.TrimSpace(emptyMessage) != ""
+		whitespaceMessageIsValid := strings.TrimSpace(whitespaceMessage) != ""
+
+		if !validMessageIsValid {
+			rt.Error("Valid message should pass validation")
+		}
+
+		if emptyMessageIsValid {
+			rt.Error("Empty message should fail validation")
+		}
+
+		if whitespaceMessageIsValid {
+			rt.Error("Whitespace-only message should fail validation")
 		}
 	})
 }

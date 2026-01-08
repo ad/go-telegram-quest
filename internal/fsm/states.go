@@ -36,4 +36,5 @@ const (
 	StateAdminEditHintText        = "admin_edit_hint_text"
 	StateAdminEditHintImage       = "admin_edit_hint_image"
 	StateAdminBackup              = "admin_backup"
+	StateAdminSendMessage         = "admin_send_message"
 )

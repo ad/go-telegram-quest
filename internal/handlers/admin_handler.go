@@ -189,6 +189,8 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.showUserAchievements(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "award:"):
 		h.handleManualAchievementAward(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:send_message:"):
+		h.startSendMessage(ctx, chatID, messageID, data)
 	case data == "admin:achievement_stats":
 		h.showAchievementStatistics(ctx, chatID, messageID)
 	case strings.HasPrefix(data, "admin:achievement_leaders"):
@@ -638,6 +640,8 @@ func (h *AdminHandler) handleStateInput(ctx context.Context, msg *tgmodels.Messa
 		return h.handleEditHintText(ctx, msg, state)
 	case fsm.StateAdminEditHintImage:
 		return h.handleEditHintImage(ctx, msg, state)
+	case fsm.StateAdminSendMessage:
+		return h.handleSendMessage(ctx, msg, state)
 	}
 	return false
 }
@@ -1282,6 +1286,11 @@ func BuildUserDetailsKeyboard(user *models.User, isAdmin bool) *tgmodels.InlineK
 	if isAdmin {
 		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
 			{Text: "🏆 Достижения", CallbackData: fmt.Sprintf("user_achievements:%d", user.ID)},
+		})
+
+		// Message button
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "💬 Написать сообщение", CallbackData: fmt.Sprintf("admin:send_message:%d", user.ID)},
 		})
 
 		// Block/unblock button
@@ -2590,4 +2599,98 @@ func (h *AdminHandler) notifyAchievements(ctx context.Context, userID int64, ach
 	if err := h.achievementNotifier.NotifyAchievements(ctx, userID, achievementKeys); err != nil {
 		log.Printf("[ADMIN] Error notifying achievements: %v", err)
 	}
+}
+
+func (h *AdminHandler) startSendMessage(ctx context.Context, chatID int64, messageID int, data string) {
+	userIDStr := strings.TrimPrefix(data, "admin:send_message:")
+	userID, err := parseInt64(userIDStr)
+	if err != nil || userID == 0 {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Неверный ID пользователя", nil)
+		return
+	}
+
+	// Verify that the target user exists
+	user, err := h.userRepo.GetByID(userID)
+	if err != nil || user == nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Пользователь не найден", nil)
+		return
+	}
+
+	// Create admin state with target user ID
+	state := &models.AdminState{
+		UserID:       h.adminID,
+		CurrentState: fsm.StateAdminSendMessage,
+		TargetUserID: userID,
+	}
+	h.adminStateRepo.Save(state)
+
+	// Display instructions with /cancel option
+	instructions := fmt.Sprintf("💬 Отправка сообщения пользователю %s\n\n📝 Введите текст сообщения:\n\n/cancel - отмена операции", user.DisplayName())
+	h.editOrSend(ctx, chatID, messageID, instructions, nil)
+}
+
+func (h *AdminHandler) handleSendMessage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	// Check for cancel command
+	if msg.Text == "/cancel" {
+		h.adminStateRepo.Clear(h.adminID)
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "❌ Отправка сообщения отменена",
+		})
+		h.showUserDetails(ctx, msg.Chat.ID, 0, fmt.Sprintf("user:%d", state.TargetUserID))
+		return true
+	}
+
+	// Validate input text (non-empty)
+	if strings.TrimSpace(msg.Text) == "" {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Сообщение не может быть пустым. Введите текст сообщения или /cancel для отмены.",
+		})
+		return true
+	}
+
+	// Send message to target user
+	h.sendMessageToUser(ctx, msg.Chat.ID, state.TargetUserID, msg.Text)
+	return true
+}
+
+func (h *AdminHandler) sendMessageToUser(ctx context.Context, adminChatID int64, targetUserID int64, message string) {
+	// Get target user information
+	user, err := h.userRepo.GetByID(targetUserID)
+	if err != nil || user == nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: adminChatID,
+			Text:   "⚠️ Ошибка: пользователь не найден",
+		})
+		h.adminStateRepo.Clear(h.adminID)
+		return
+	}
+
+	// Send message to target user
+	_, err = h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: targetUserID,
+		Text:   message,
+	})
+
+	// Clear admin state
+	h.adminStateRepo.Clear(h.adminID)
+
+	// Show status to administrator
+	if err != nil {
+		statusMessage := fmt.Sprintf("❌ Ошибка при отправке сообщения пользователю %s:\n%v", user.DisplayName(), err)
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: adminChatID,
+			Text:   statusMessage,
+		})
+	} else {
+		statusMessage := fmt.Sprintf("✅ Сообщение успешно отправлено пользователю %s", user.DisplayName())
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: adminChatID,
+			Text:   statusMessage,
+		})
+	}
+
+	// Return to user details screen
+	h.showUserDetails(ctx, adminChatID, 0, fmt.Sprintf("user:%d", targetUserID))
 }

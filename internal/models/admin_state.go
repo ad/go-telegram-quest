@@ -12,4 +12,5 @@ type AdminState struct {
 	ImagePosition    int
 	ReplacingImageID int64
 	NewHintText      string
+	TargetUserID     int64
 }
