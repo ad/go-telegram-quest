@@ -2121,7 +2121,7 @@ func (h *AdminHandler) showUserAchievements(ctx context.Context, chatID int64, m
 		return
 	}
 
-	text := FormatUserAchievements(user, summary)
+	text := h.FormatUserAchievements(user, summary, userID)
 
 	// Создаём кнопки для ручных достижений, которые ещё не выданы - только для админов
 	var buttons [][]tgmodels.InlineKeyboardButton
@@ -2163,6 +2163,64 @@ func (h *AdminHandler) showUserAchievements(ctx context.Context, chatID int64, m
 	h.editOrSend(ctx, chatID, messageID, text, keyboard)
 }
 
+func (h *AdminHandler) FormatUserAchievements(user *models.User, summary *services.UserAchievementSummary, userID int64) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("🏆 Достижения пользователя %s\n\n", user.DisplayName()))
+
+	if summary.TotalCount == 0 {
+		sb.WriteString("У пользователя пока нет достижений")
+		return sb.String()
+	}
+
+	sb.WriteString(fmt.Sprintf("Всего достижений: %d\n\n", summary.TotalCount))
+
+	categoryNames := map[models.AchievementCategory]string{
+		models.CategoryProgress:   "📈 Прогресс",
+		models.CategoryCompletion: "🏁 Завершение",
+		models.CategorySpecial:    "⭐ Особые",
+		models.CategoryHints:      "💡 Подсказки",
+		models.CategoryComposite:  "🎖️ Составные",
+		models.CategoryUnique:     "👑 Уникальные",
+	}
+
+	categoryOrder := []models.AchievementCategory{
+		models.CategoryUnique,
+		models.CategoryComposite,
+		models.CategoryCompletion,
+		models.CategoryProgress,
+		models.CategoryHints,
+		models.CategorySpecial,
+	}
+
+	for _, category := range categoryOrder {
+		achievements, exists := summary.AchievementsByCategory[category]
+		if !exists || len(achievements) == 0 {
+			continue
+		}
+
+		categoryName := categoryNames[category]
+		sb.WriteString(fmt.Sprintf("%s:\n", categoryName))
+
+		for _, details := range achievements {
+			sb.WriteString(fmt.Sprintf("  • %s\n", details.Achievement.Name))
+			sb.WriteString(fmt.Sprintf("    %s\n", details.EarnedAt))
+		}
+		sb.WriteString("\n")
+	}
+
+	// Добавляем ссылку на стикерпак если он есть
+	if h.achievementNotifier != nil {
+		stickerPackMessage := h.achievementNotifier.FormatStickerPackMessage(userID)
+		if stickerPackMessage != "" {
+			sb.WriteString(stickerPackMessage)
+			sb.WriteString("\n\n")
+		}
+	}
+
+	return sb.String()
+}
+
+// FormatUserAchievements - функция для тестов
 func FormatUserAchievements(user *models.User, summary *services.UserAchievementSummary) string {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("🏆 Достижения пользователя %s\n\n", user.DisplayName()))
