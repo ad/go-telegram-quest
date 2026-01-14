@@ -232,6 +232,17 @@ func (h *BotHandler) handleStart(ctx context.Context, msg *tgmodels.Message) {
 		if settings != nil && settings.FinalMessage != "" {
 			finalMsg = settings.FinalMessage
 		}
+
+		completionStats := h.statsService.FormatCompletionStats(msg.From.ID)
+		if completionStats != "" {
+			finalMsg = finalMsg + "\n\n" + completionStats
+		}
+
+		stickerPackMsg := h.achievementNotifier.FormatStickerPackMessage(msg.From.ID)
+		if stickerPackMsg != "" {
+			finalMsg = finalMsg + "\n\n" + stickerPackMsg
+		}
+
 		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
 			Text:   finalMsg,
@@ -484,6 +495,11 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 			finalMsg = settings.FinalMessage
 		}
 
+		completionStats := h.statsService.FormatCompletionStats(userID)
+		if completionStats != "" {
+			finalMsg = finalMsg + "\n\n" + completionStats
+		}
+
 		stickerPackMsg := h.achievementNotifier.FormatStickerPackMessage(userID)
 		if stickerPackMsg != "" {
 			finalMsg = finalMsg + "\n\n" + stickerPackMsg
@@ -563,6 +579,11 @@ func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOr
 		finalMsg := "🎉 Поздравляем! Вы прошли квест!"
 		if settings != nil && settings.FinalMessage != "" {
 			finalMsg = settings.FinalMessage
+		}
+
+		completionStats := h.statsService.FormatCompletionStats(userID)
+		if completionStats != "" {
+			finalMsg = finalMsg + "\n\n" + completionStats
 		}
 
 		stickerPackMsg := h.achievementNotifier.FormatStickerPackMessage(userID)

@@ -2,6 +2,10 @@ package services
 
 import (
 	"database/sql"
+	"fmt"
+	"log"
+	"strings"
+	"time"
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
@@ -323,4 +327,161 @@ type UserStatisticsWithAchievements struct {
 	LeaderboardPosition int
 	TotalUsers          int
 	AchievementCount    int
+}
+
+func (s *StatisticsService) FormatCompletionStats(userID int64) string {
+	position, totalUsers, err := s.GetUserLeaderboardPosition(userID)
+	if err != nil {
+		log.Printf("[STATS] GetUserLeaderboardPosition error for user %d: %v", userID, err)
+		return ""
+	}
+
+	answered, _, _, err := s.GetUserProgress(userID)
+	if err != nil {
+		log.Printf("[STATS] GetUserProgress error for user %d: %v", userID, err)
+		return ""
+	}
+
+	totalAnswers, hintsUsed, firstTime, lastTime, err := s.getUserDetailedAnswerStats(userID)
+	if err != nil {
+		log.Printf("[STATS] getUserDetailedAnswerStats error for user %d: %v", userID, err)
+		return ""
+	}
+
+	log.Printf("[STATS] User %d: position=%d, totalUsers=%d, answered=%d, totalAnswers=%d, hintsUsed=%d",
+		userID, position, totalUsers, answered, totalAnswers, hintsUsed)
+
+	var lines []string
+
+	// Место в рейтинге
+	if totalUsers > 1 {
+		switch position {
+		case 1:
+			lines = append(lines, "🥇 Невероятно! Вы первый, кто покорил этот квест!")
+		case 2:
+			lines = append(lines, fmt.Sprintf("🥈 Отлично! Серебро ваше — вы второй из %d!", totalUsers))
+		case 3:
+			lines = append(lines, fmt.Sprintf("🥉 Бронза! Вы в тройке лидеров из %d участников!", totalUsers))
+		default:
+			if position <= totalUsers/10 && totalUsers >= 10 {
+				lines = append(lines, fmt.Sprintf("🏅 Вы в топ-10%% — место %d из %d!", position, totalUsers))
+			} else {
+				lines = append(lines, fmt.Sprintf("🏅 Ваше место: %d из %d участников", position, totalUsers))
+			}
+		}
+	} else {
+		lines = append(lines, "🏆 Вы покорили этот квест!")
+	}
+
+	// Время прохождения
+	if firstTime != nil && lastTime != nil {
+		duration := lastTime.Sub(*firstTime)
+		if duration > 0 {
+			durationStr := formatDurationFriendly(duration)
+			if duration < time.Hour {
+				lines = append(lines, fmt.Sprintf("⚡ Скоростное прохождение за %s!", durationStr))
+			} else if duration < 24*time.Hour {
+				lines = append(lines, fmt.Sprintf("⏱ Квест пройден за %s", durationStr))
+			} else {
+				lines = append(lines, fmt.Sprintf("⏱ Путь к победе занял %s", durationStr))
+			}
+		}
+	}
+
+	// Точность ответов
+	if totalAnswers > 0 {
+		accuracy := 100
+		if totalAnswers > answered {
+			accuracy = (answered * 100) / totalAnswers
+		}
+
+		if accuracy == 100 {
+			lines = append(lines, "🎯 Идеально! Все ответы с первой попытки!")
+		} else if accuracy >= 80 {
+			lines = append(lines, fmt.Sprintf("🎯 Впечатляет! Точность %d%% — почти без ошибок!", accuracy))
+		} else if accuracy >= 50 {
+			lines = append(lines, fmt.Sprintf("🎯 Неплохо! Точность ответов: %d%%", accuracy))
+		}
+	}
+
+	// Подсказки
+	if hintsUsed == 0 {
+		lines = append(lines, "💡 Вау! Прошли без единой подсказки — настоящий эксперт!")
+	} else if hintsUsed == 1 {
+		lines = append(lines, "💡 Почти самостоятельно! Всего одна подсказка")
+	} else if hintsUsed <= 3 {
+		lines = append(lines, fmt.Sprintf("💡 Немного помощи не помешало: %d подсказки", hintsUsed))
+	} else {
+		lines = append(lines, fmt.Sprintf("💡 Подсказки — наши друзья: использовано %d", hintsUsed))
+	}
+
+	if len(lines) == 0 {
+		return ""
+	}
+
+	return "📊 Ваши результаты:\n" + strings.Join(lines, "\n")
+}
+
+func (s *StatisticsService) getUserDetailedAnswerStats(userID int64) (int, int, *time.Time, *time.Time, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var totalAnswers, hintsUsed int
+		var firstTimeStr, lastTimeStr sql.NullString
+		err := db.QueryRow(`
+			SELECT 
+				COUNT(*), 
+				COALESCE(SUM(CASE WHEN hint_used = 1 THEN 1 ELSE 0 END), 0),
+				MIN(created_at),
+				MAX(created_at)
+			FROM user_answers WHERE user_id = ?
+		`, userID).Scan(&totalAnswers, &hintsUsed, &firstTimeStr, &lastTimeStr)
+		return []interface{}{totalAnswers, hintsUsed, firstTimeStr, lastTimeStr}, err
+	})
+	if err != nil {
+		return 0, 0, nil, nil, err
+	}
+	res := result.([]interface{})
+	totalAnswers := res[0].(int)
+	hintsUsed := res[1].(int)
+	firstTimeStr := res[2].(sql.NullString)
+	lastTimeStr := res[3].(sql.NullString)
+
+	var first, last *time.Time
+	if firstTimeStr.Valid {
+		if t, err := time.Parse("2006-01-02 15:04:05", firstTimeStr.String); err == nil {
+			first = &t
+		} else if t, err := time.Parse(time.RFC3339, firstTimeStr.String); err == nil {
+			first = &t
+		}
+	}
+	if lastTimeStr.Valid {
+		if t, err := time.Parse("2006-01-02 15:04:05", lastTimeStr.String); err == nil {
+			last = &t
+		} else if t, err := time.Parse(time.RFC3339, lastTimeStr.String); err == nil {
+			last = &t
+		}
+	}
+	return totalAnswers, hintsUsed, first, last, nil
+}
+
+func formatDurationFriendly(d time.Duration) string {
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+
+	if days > 0 {
+		if hours > 0 {
+			return fmt.Sprintf("%dд %dч", days, hours)
+		}
+		return fmt.Sprintf("%dд", days)
+	}
+	if hours > 0 {
+		if minutes > 0 {
+			return fmt.Sprintf("%dч %dм", hours, minutes)
+		}
+		return fmt.Sprintf("%dч", hours)
+	}
+	if minutes > 0 {
+		return fmt.Sprintf("%dм", minutes)
+	}
+	return "меньше минуты"
 }
