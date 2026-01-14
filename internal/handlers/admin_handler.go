@@ -411,25 +411,25 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 		{Text: "🗑️ Удалить", CallbackData: fmt.Sprintf("admin:delete_step:%d", stepID)},
 	})
 
-	if !hasProgress {
-		var moveButtons []tgmodels.InlineKeyboardButton
+	// if !hasProgress {
+	var moveButtons []tgmodels.InlineKeyboardButton
 
-		if canMoveUp, _ := h.stepRepo.CanMoveUp(stepID); canMoveUp {
-			moveButtons = append(moveButtons, tgmodels.InlineKeyboardButton{
-				Text: "⬆️ Вверх", CallbackData: fmt.Sprintf("admin:move_up:%d", stepID),
-			})
-		}
-
-		if canMoveDown, _ := h.stepRepo.CanMoveDown(stepID); canMoveDown {
-			moveButtons = append(moveButtons, tgmodels.InlineKeyboardButton{
-				Text: "⬇️ Вниз", CallbackData: fmt.Sprintf("admin:move_down:%d", stepID),
-			})
-		}
-
-		if len(moveButtons) > 0 {
-			buttons = append(buttons, moveButtons)
-		}
+	if canMoveUp, _ := h.stepRepo.CanMoveUp(stepID); canMoveUp {
+		moveButtons = append(moveButtons, tgmodels.InlineKeyboardButton{
+			Text: "⬆️ Вверх", CallbackData: fmt.Sprintf("admin:move_up:%d", stepID),
+		})
 	}
+
+	if canMoveDown, _ := h.stepRepo.CanMoveDown(stepID); canMoveDown {
+		moveButtons = append(moveButtons, tgmodels.InlineKeyboardButton{
+			Text: "⬇️ Вниз", CallbackData: fmt.Sprintf("admin:move_down:%d", stepID),
+		})
+	}
+
+	if len(moveButtons) > 0 {
+		buttons = append(buttons, moveButtons)
+	}
+	// }
 
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
 		{Text: "⬅️ Назад", CallbackData: "admin:list_steps"},
