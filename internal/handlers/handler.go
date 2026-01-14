@@ -338,21 +338,49 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 
 	state, err := h.stateResolver.ResolveState(userID)
 	if err != nil {
+		log.Printf("[HANDLER] Error resolving state for user %d: %v", userID, err)
 		return
 	}
 
 	h.evaluateSecretAnswer(ctx, userID, msg.Text)
 
 	if state.IsCompleted {
+		log.Printf("[HANDLER] User %d completed quest, forwarding message to admin", userID)
 		h.evaluateAchievementsOnPostCompletion(ctx, userID)
+		h.forwardMessageToAdmin(ctx, msg, nil, "после завершения квеста")
 		return
 	}
 
 	if state.CurrentStep == nil {
+		log.Printf("[HANDLER] User %d has no current step", userID)
 		return
 	}
 
 	step := state.CurrentStep
+	log.Printf("[HANDLER] User %d on step %d (order %d)", userID, step.ID, step.StepOrder)
+
+	chatState, _ := h.chatStateRepo.Get(userID)
+	progress, _ := h.progressRepo.GetByUserAndStep(userID, step.ID)
+
+	if chatState != nil && chatState.AwaitingNextStep && (progress == nil || progress.Status == models.StatusPending) {
+		log.Printf("[HANDLER] User %d sent text message while awaiting next step, moving to next step", userID)
+
+		prevStep, err := h.stepRepo.GetPreviousActive(step.StepOrder)
+		if err == nil && prevStep != nil {
+			h.forwardMessageToAdmin(ctx, msg, prevStep, "после правильного ответа")
+		} else {
+			h.forwardMessageToAdmin(ctx, msg, step, "после правильного ответа")
+		}
+
+		h.msgManager.DeletePreviousMessages(ctx, userID)
+		h.chatStateRepo.ClearAwaitingNextStep(userID)
+		h.sendStep(ctx, userID, step)
+		return
+	}
+
+	if progress != nil {
+		log.Printf("[HANDLER] User %d progress on step %d: status=%s", userID, step.ID, progress.Status)
+	}
 
 	if step.AnswerType == models.AnswerTypeImage {
 		// Award writer achievement for sending text on image question
@@ -371,8 +399,7 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 	h.msgManager.SaveUserAnswerMessageID(userID, msg.ID)
 	h.msgManager.CleanupHintMessage(ctx, userID)
 
-	// Get current hint usage state
-	chatState, err := h.chatStateRepo.Get(userID)
+	chatState, err = h.chatStateRepo.Get(userID)
 	hintUsed := false
 	if err == nil && chatState != nil {
 		hintUsed = chatState.CurrentStepHintUsed
@@ -380,7 +407,6 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 
 	h.answerRepo.CreateTextAnswer(userID, step.ID, msg.Text, hintUsed)
 
-	// Reset hint usage after saving answer
 	if hintUsed {
 		h.chatStateRepo.ResetHintUsed(userID)
 	}
@@ -540,9 +566,10 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		},
 	}
 
+	h.chatStateRepo.SetAwaitingNextStep(userID)
+
 	if step.CorrectAnswerImage != "" {
-		// log.Printf("[HANDLER] Sending correct answer photo to user %d", userID)
-		_, err := h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
+		msg, err := h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID:          userID,
 			Photo:           &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
 			Caption:         correctMsg,
@@ -551,23 +578,25 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		})
 		if err != nil {
 			log.Printf("[HANDLER] Failed to send photo to user %d: %v, sending text message instead", userID, err)
-			// Если не удалось отправить фото, отправляем текстовое сообщение
-			h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
+			msg, _ = h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 				ChatID:      userID,
 				Text:        correctMsg,
 				ReplyMarkup: nextStepBtn,
 			}, effectID)
 		}
+		if msg != nil {
+			h.chatStateRepo.UpdateReactionMessageID(userID, msg.ID)
+		}
 	} else {
-		// log.Printf("[HANDLER] Sending correct answer message to user %d: %s", userID, correctMsg)
-		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
+		msg, _ := h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 			ChatID:      userID,
 			Text:        correctMsg,
 			ReplyMarkup: nextStepBtn,
 		}, effectID)
+		if msg != nil {
+			h.chatStateRepo.UpdateReactionMessageID(userID, msg.ID)
+		}
 	}
-
-	// log.Printf("[HANDLER] handleCorrectAnswer completed for user %d", userID)
 }
 
 func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOrder int) {
@@ -634,6 +663,7 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 
 	if state.IsCompleted {
 		h.evaluateAchievementsOnPostCompletion(ctx, userID)
+		h.forwardMessageToAdmin(ctx, msg, nil, "после завершения квеста")
 		return
 	}
 
@@ -642,6 +672,25 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 	}
 
 	step := state.CurrentStep
+
+	chatState, _ := h.chatStateRepo.Get(userID)
+	progress, _ := h.progressRepo.GetByUserAndStep(userID, step.ID)
+
+	if chatState != nil && chatState.AwaitingNextStep && (progress == nil || progress.Status == models.StatusPending) {
+		log.Printf("[HANDLER] User %d sent image while awaiting next step, moving to next step", userID)
+
+		prevStep, err := h.stepRepo.GetPreviousActive(step.StepOrder)
+		if err == nil && prevStep != nil {
+			h.forwardMessageToAdmin(ctx, msg, prevStep, "после правильного ответа")
+		} else {
+			h.forwardMessageToAdmin(ctx, msg, step, "после правильного ответа")
+		}
+
+		h.msgManager.DeletePreviousMessages(ctx, userID)
+		h.chatStateRepo.ClearAwaitingNextStep(userID)
+		h.sendStep(ctx, userID, step)
+		return
+	}
 
 	isTextTask := step.AnswerType == models.AnswerTypeText
 	if isTextTask {
@@ -659,8 +708,7 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 		fileID = msg.Photo[len(msg.Photo)-1].FileID
 	}
 
-	// Get current hint usage state
-	chatState, err := h.chatStateRepo.Get(userID)
+	chatState, err = h.chatStateRepo.Get(userID)
 	hintUsed := false
 	if err == nil && chatState != nil {
 		hintUsed = chatState.CurrentStepHintUsed
@@ -668,12 +716,11 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 
 	h.answerRepo.CreateImageAnswer(userID, step.ID, []string{fileID}, hintUsed)
 
-	// Reset hint usage after saving answer
 	if hintUsed {
 		h.chatStateRepo.ResetHintUsed(userID)
 	}
 
-	progress, _ := h.progressRepo.GetByUserAndStep(userID, step.ID)
+	progress, _ = h.progressRepo.GetByUserAndStep(userID, step.ID)
 	if progress == nil {
 		h.progressRepo.Create(&models.UserProgress{
 			UserID: userID,
@@ -1001,6 +1048,8 @@ func (h *BotHandler) handleNextStepCallback(ctx context.Context, callback *tgmod
 		})
 	}
 
+	h.chatStateRepo.ClearAwaitingNextStep(callback.From.ID)
+
 	currentOrder, _ := parseInt64(parts[1])
 	h.moveToNextStep(ctx, callback.From.ID, int(currentOrder))
 
@@ -1219,4 +1268,48 @@ func (h *BotHandler) evaluateSecretAnswer(ctx context.Context, userID int64, ans
 	}
 
 	h.notifyAchievements(ctx, userID, awarded)
+}
+
+func (h *BotHandler) forwardMessageToAdmin(ctx context.Context, msg *tgmodels.Message, step *models.Step, context string) {
+	user, _ := h.userRepo.GetByID(msg.From.ID)
+	displayName := fmt.Sprintf("[%d]", msg.From.ID)
+	if user != nil {
+		displayName = user.DisplayName()
+	}
+
+	var caption string
+	if step != nil {
+		stepText := step.Text
+		if len(stepText) > 100 {
+			stepText = stepText[:100] + "..."
+		}
+		caption = fmt.Sprintf("💬 Сообщение от %s %s на вопрос \"%s\"", displayName, context, stepText)
+	} else {
+		caption = fmt.Sprintf("💬 Сообщение от %s %s", displayName, context)
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "💬 Написать сообщение", CallbackData: fmt.Sprintf("admin:send_message:%d", msg.From.ID)}},
+		},
+	}
+
+	if len(msg.Photo) > 0 {
+		fileID := msg.Photo[len(msg.Photo)-1].FileID
+		if msg.Caption != "" {
+			caption = caption + "\n\n📝 " + msg.Caption
+		}
+		h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
+			ChatID:      h.adminID,
+			Photo:       &tgmodels.InputFileString{Data: fileID},
+			Caption:     caption,
+			ReplyMarkup: keyboard,
+		})
+	} else if msg.Text != "" {
+		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+			ChatID:      h.adminID,
+			Text:        caption + "\n\n💬 " + msg.Text,
+			ReplyMarkup: keyboard,
+		})
+	}
 }

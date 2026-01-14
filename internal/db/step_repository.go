@@ -227,6 +227,28 @@ func (r *StepRepository) GetNextActive(afterOrder int) (*models.Step, error) {
 	return result.(*models.Step), nil
 }
 
+func (r *StepRepository) GetPreviousActive(beforeOrder int) (*models.Step, error) {
+	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		row := db.QueryRow(`
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, hint_text, hint_image, created_at
+			FROM steps
+			WHERE is_active = TRUE AND is_deleted = FALSE AND step_order < ?
+			ORDER BY step_order DESC
+			LIMIT 1
+		`, beforeOrder)
+
+		step, err := r.scanStep(row)
+		if err != nil {
+			return nil, err
+		}
+		return r.loadStepRelations(db, step)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*models.Step), nil
+}
+
 func (r *StepRepository) AddImage(stepID int64, fileID string, position int) error {
 	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		_, err := db.Exec(`

@@ -17,15 +17,16 @@ func NewChatStateRepository(queue *DBQueue) *ChatStateRepository {
 func (r *ChatStateRepository) Save(state *models.ChatState) error {
 	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		_, err := db.Exec(`
-			INSERT INTO user_chat_state (user_id, last_task_message_id, last_user_answer_message_id, last_reaction_message_id, hint_message_id, current_step_hint_used)
-			VALUES (?, ?, ?, ?, ?, ?)
+			INSERT INTO user_chat_state (user_id, last_task_message_id, last_user_answer_message_id, last_reaction_message_id, hint_message_id, current_step_hint_used, awaiting_next_step)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(user_id) DO UPDATE SET
 				last_task_message_id = excluded.last_task_message_id,
 				last_user_answer_message_id = excluded.last_user_answer_message_id,
 				last_reaction_message_id = excluded.last_reaction_message_id,
 				hint_message_id = excluded.hint_message_id,
-				current_step_hint_used = excluded.current_step_hint_used
-		`, state.UserID, state.LastTaskMessageID, state.LastUserAnswerMessageID, state.LastReactionMessageID, state.HintMessageID, state.CurrentStepHintUsed)
+				current_step_hint_used = excluded.current_step_hint_used,
+				awaiting_next_step = excluded.awaiting_next_step
+		`, state.UserID, state.LastTaskMessageID, state.LastUserAnswerMessageID, state.LastReactionMessageID, state.HintMessageID, state.CurrentStepHintUsed, state.AwaitingNextStep)
 		return nil, err
 	})
 	return err
@@ -34,14 +35,14 @@ func (r *ChatStateRepository) Save(state *models.ChatState) error {
 func (r *ChatStateRepository) Get(userID int64) (*models.ChatState, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		row := db.QueryRow(`
-			SELECT user_id, last_task_message_id, last_user_answer_message_id, last_reaction_message_id, hint_message_id, current_step_hint_used
+			SELECT user_id, last_task_message_id, last_user_answer_message_id, last_reaction_message_id, hint_message_id, current_step_hint_used, awaiting_next_step
 			FROM user_chat_state WHERE user_id = ?
 		`, userID)
 
 		var state models.ChatState
 		var taskMsgID, answerMsgID, reactionMsgID, hintMsgID sql.NullInt64
-		var hintUsed sql.NullBool
-		err := row.Scan(&state.UserID, &taskMsgID, &answerMsgID, &reactionMsgID, &hintMsgID, &hintUsed)
+		var hintUsed, awaitingNext sql.NullBool
+		err := row.Scan(&state.UserID, &taskMsgID, &answerMsgID, &reactionMsgID, &hintMsgID, &hintUsed, &awaitingNext)
 		if err != nil {
 			return nil, err
 		}
@@ -50,6 +51,7 @@ func (r *ChatStateRepository) Get(userID int64) (*models.ChatState, error) {
 		state.LastReactionMessageID = int(reactionMsgID.Int64)
 		state.HintMessageID = int(hintMsgID.Int64)
 		state.CurrentStepHintUsed = hintUsed.Bool
+		state.AwaitingNextStep = awaitingNext.Bool
 		return &state, nil
 	})
 	if err != nil {
@@ -134,6 +136,32 @@ func (r *ChatStateRepository) ResetHintUsed(userID int64) error {
 			ON CONFLICT(user_id) DO UPDATE SET 
 				current_step_hint_used = FALSE,
 				hint_message_id = 0
+		`, userID)
+		return nil, err
+	})
+	return err
+}
+
+func (r *ChatStateRepository) SetAwaitingNextStep(userID int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`
+			INSERT INTO user_chat_state (user_id, awaiting_next_step)
+			VALUES (?, TRUE)
+			ON CONFLICT(user_id) DO UPDATE SET 
+				awaiting_next_step = TRUE
+		`, userID)
+		return nil, err
+	})
+	return err
+}
+
+func (r *ChatStateRepository) ClearAwaitingNextStep(userID int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`
+			INSERT INTO user_chat_state (user_id, awaiting_next_step)
+			VALUES (?, FALSE)
+			ON CONFLICT(user_id) DO UPDATE SET 
+				awaiting_next_step = FALSE
 		`, userID)
 		return nil, err
 	})

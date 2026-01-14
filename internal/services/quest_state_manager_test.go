@@ -96,7 +96,8 @@ func setupTestDBForDataPreservation(t *testing.T) (*db.DBQueue, func()) {
 			last_user_answer_message_id INTEGER,
 			last_reaction_message_id INTEGER,
 			hint_message_id INTEGER DEFAULT 0,
-			current_step_hint_used BOOLEAN DEFAULT FALSE
+			current_step_hint_used BOOLEAN DEFAULT FALSE,
+			awaiting_next_step BOOLEAN DEFAULT FALSE
 		);
 
 		CREATE TABLE IF NOT EXISTS step_answers (

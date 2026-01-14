@@ -73,7 +73,8 @@ CREATE TABLE IF NOT EXISTS user_chat_state (
     last_user_answer_message_id INTEGER,
     last_reaction_message_id INTEGER,
     hint_message_id INTEGER DEFAULT 0,
-    current_step_hint_used BOOLEAN DEFAULT FALSE
+    current_step_hint_used BOOLEAN DEFAULT FALSE,
+    awaiting_next_step BOOLEAN DEFAULT FALSE
 );
 
 CREATE TABLE IF NOT EXISTS admin_messages (
@@ -159,6 +160,7 @@ ALTER TABLE user_chat_state ADD COLUMN current_step_hint_used BOOLEAN DEFAULT FA
 ALTER TABLE user_answers ADD COLUMN hint_used BOOLEAN DEFAULT FALSE;
 ALTER TABLE admin_state ADD COLUMN new_hint_text TEXT DEFAULT '';
 ALTER TABLE admin_state ADD COLUMN target_user_id INTEGER DEFAULT 0;
+ALTER TABLE user_chat_state ADD COLUMN awaiting_next_step BOOLEAN DEFAULT FALSE;
 `
 
 func InitSchema(db *sql.DB) error {

@@ -7,4 +7,5 @@ type ChatState struct {
 	LastReactionMessageID   int
 	HintMessageID           int
 	CurrentStepHintUsed     bool
+	AwaitingNextStep        bool
 }
