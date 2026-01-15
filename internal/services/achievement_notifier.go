@@ -80,6 +80,8 @@ var achievementEmojis = map[string]string{
 	"activity":        "🪩",
 	"wow":             "💎",
 	"asterisk":        "⭐",
+	"unseen":          "👁️",
+	"voice":           "📢",
 }
 
 func (n *AchievementNotifier) GetAchievementEmoji(achievement *models.Achievement) string {
@@ -95,7 +97,7 @@ func (n *AchievementNotifier) GetAchievementEmoji(achievement *models.Achievemen
 func (n *AchievementNotifier) FormatNotification(achievement *models.Achievement) string {
 	emoji := n.GetAchievementEmoji(achievement)
 	return fmt.Sprintf(
-		"🎉 Поздравляем! Вы получили достижение!\n\n%s %s\n\n%s",
+		"🎉 Поздравляем! Вы получили достижение!\n\n%s %s\n%s",
 		emoji,
 		achievement.Name,
 		achievement.Description,

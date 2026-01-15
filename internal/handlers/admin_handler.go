@@ -2729,6 +2729,16 @@ func (h *AdminHandler) sendMessageToUser(ctx context.Context, adminChatID int64,
 		Text:   message,
 	})
 
+	// Award achievement for receiving message from admin
+	if err == nil && h.achievementEngine != nil {
+		awarded, achievementErr := h.achievementEngine.OnMessageFromAdmin(targetUserID)
+		if achievementErr != nil {
+			log.Printf("[ADMIN] Error awarding message from admin achievement: %v", achievementErr)
+		} else if len(awarded) > 0 {
+			h.notifyAchievements(ctx, targetUserID, awarded)
+		}
+	}
+
 	// Clear admin state
 	h.adminStateRepo.Clear(h.adminID)
 

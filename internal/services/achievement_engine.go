@@ -1863,6 +1863,30 @@ func (e *AchievementEngine) OnPostCompletionActivity(userID int64) ([]string, er
 	return awarded, nil
 }
 
+func (e *AchievementEngine) OnMessageToAdmin(userID int64) ([]string, error) {
+	var awarded []string
+	unseenAwarded, err := e.tryAwardSpecialAchievement(userID, "unseen")
+	if err != nil {
+		log.Printf("[ACHIEVEMENT_ENGINE] Error awarding unseen: %v", err)
+	} else if unseenAwarded {
+		awarded = append(awarded, "unseen")
+	}
+
+	return awarded, nil
+}
+
+func (e *AchievementEngine) OnMessageFromAdmin(userID int64) ([]string, error) {
+	var awarded []string
+	voiceAwarded, err := e.tryAwardSpecialAchievement(userID, "voice")
+	if err != nil {
+		log.Printf("[ACHIEVEMENT_ENGINE] Error awarding voice: %v", err)
+	} else if voiceAwarded {
+		awarded = append(awarded, "voice")
+	}
+
+	return awarded, nil
+}
+
 func (e *AchievementEngine) CheckInactivityAchievement(userID int64) ([]string, error) {
 	inactiveHours, err := e.calculateInactiveHours(userID)
 	if err != nil {

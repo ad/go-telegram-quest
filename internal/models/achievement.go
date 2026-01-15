@@ -48,6 +48,8 @@ type AchievementConditions struct {
 	TextOnImageTask       *bool    `json:"text_on_image_task,omitempty"`
 	ManualAward           *bool    `json:"manual_award,omitempty"`
 	AsteriskAnswered      *bool    `json:"asterisk_answered,omitempty"`
+	MessageToAdmin        *bool    `json:"message_to_admin,omitempty"`
+	MessageFromAdmin      *bool    `json:"message_from_admin,omitempty"`
 }
 
 func (c *AchievementConditions) ToJSON() (string, error) {

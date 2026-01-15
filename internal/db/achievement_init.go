@@ -569,6 +569,32 @@ func getDefaultAchievements() []*models.Achievement {
 		IsActive: true,
 	})
 
+	achievements = append(achievements, &models.Achievement{
+		Key:         "unseen",
+		Name:        "Невидимый собеседник",
+		Description: "Отправить сообщение админу",
+		Category:    models.CategorySpecial,
+		Type:        models.TypeActionBased,
+		IsUnique:    false,
+		Conditions: models.AchievementConditions{
+			MessageToAdmin: boolPtr(true),
+		},
+		IsActive: true,
+	})
+
+	achievements = append(achievements, &models.Achievement{
+		Key:         "voice",
+		Name:        "Голос свыше",
+		Description: "Получить сообщение от админа",
+		Category:    models.CategorySpecial,
+		Type:        models.TypeActionBased,
+		IsUnique:    false,
+		Conditions: models.AchievementConditions{
+			MessageFromAdmin: boolPtr(true),
+		},
+		IsActive: true,
+	})
+
 	// Manual achievements (awarded by admin)
 	achievements = append(achievements, &models.Achievement{
 		Key:         "veteran",

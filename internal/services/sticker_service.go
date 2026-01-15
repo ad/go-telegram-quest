@@ -300,6 +300,8 @@ func (s *StickerService) getAchievementEmoji(achievementKey string) string {
 		"activity":        "🪩",
 		"wow":             "💎",
 		"asterisk":        "⭐",
+		"unseen":          "👁️",
+		"voice":           "📢",
 	}
 
 	if emoji, ok := achievementEmojis[achievementKey]; ok {

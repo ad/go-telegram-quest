@@ -370,6 +370,15 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 	if chatState != nil && chatState.AwaitingNextStep && (progress == nil || progress.Status == models.StatusPending) {
 		log.Printf("[HANDLER] User %d sent text message while awaiting next step, moving to next step", userID)
 
+		if h.achievementEngine != nil {
+			awarded, err := h.achievementEngine.OnMessageToAdmin(userID)
+			if err != nil {
+				log.Printf("[HANDLER] Error awarding message to admin achievement: %v", err)
+			} else if len(awarded) > 0 {
+				h.notifyAchievements(ctx, userID, awarded)
+			}
+		}
+
 		prevStep, err := h.stepRepo.GetPreviousActive(step.StepOrder)
 		if err == nil && prevStep != nil {
 			h.forwardMessageToAdmin(ctx, msg, prevStep, "после правильного ответа")
@@ -388,7 +397,8 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 	}
 
 	if step.AnswerType == models.AnswerTypeImage {
-		// Award writer achievement for sending text on image question
+		h.forwardMessageToAdmin(ctx, msg, step, "при отправке текста на вопрос-изображение")
+
 		writerAchievements, err := h.achievementEngine.OnTextOnImageTask(userID)
 		if err != nil {
 			log.Printf("[HANDLER] Error awarding writer achievement: %v", err)
@@ -684,6 +694,15 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 	if chatState != nil && chatState.AwaitingNextStep && (progress == nil || progress.Status == models.StatusPending) {
 		log.Printf("[HANDLER] User %d sent image while awaiting next step, moving to next step", userID)
 
+		if h.achievementEngine != nil {
+			awarded, err := h.achievementEngine.OnMessageToAdmin(userID)
+			if err != nil {
+				log.Printf("[HANDLER] Error awarding message to admin achievement: %v", err)
+			} else if len(awarded) > 0 {
+				h.notifyAchievements(ctx, userID, awarded)
+			}
+		}
+
 		prevStep, err := h.stepRepo.GetPreviousActive(step.StepOrder)
 		if err == nil && prevStep != nil {
 			h.forwardMessageToAdmin(ctx, msg, prevStep, "после правильного ответа")
@@ -701,7 +720,7 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 	if isTextTask {
 		h.msgManager.SaveUserAnswerMessageID(userID, msg.ID)
 		h.msgManager.SendReaction(ctx, userID, "📝 Для этого задания нужно отправить текст")
-		h.evaluateAchievementsOnPhotoSubmitted(ctx, userID, true)
+		h.evaluateAchievementsOnPhotoSubmitted(ctx, userID, true, msg, step)
 		return
 	}
 
@@ -743,7 +762,7 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 	h.sendToAdminForReview(ctx, userID, step, "", []string{fileID})
 	h.msgManager.SendReaction(ctx, userID, "⏳ Ваше фото отправлено на проверку, подождите пока его проверят.")
 
-	h.evaluateAchievementsOnPhotoSubmitted(ctx, userID, false)
+	h.evaluateAchievementsOnPhotoSubmitted(ctx, userID, false, msg, step)
 }
 
 func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels.CallbackQuery) {
@@ -1266,7 +1285,7 @@ func (h *BotHandler) evaluateAchievementsOnQuestCompleted(ctx context.Context, u
 	h.notifyAchievements(ctx, userID, allAwarded)
 }
 
-func (h *BotHandler) evaluateAchievementsOnPhotoSubmitted(ctx context.Context, userID int64, isTextTask bool) {
+func (h *BotHandler) evaluateAchievementsOnPhotoSubmitted(ctx context.Context, userID int64, isTextTask bool, msg *tgmodels.Message, step *models.Step) {
 	if h.achievementEngine == nil {
 		return
 	}
@@ -1278,6 +1297,8 @@ func (h *BotHandler) evaluateAchievementsOnPhotoSubmitted(ctx context.Context, u
 	}
 
 	h.notifyAchievements(ctx, userID, awarded)
+
+	h.forwardMessageToAdmin(ctx, msg, step, "при отправке изображения на вопрос-текст")
 }
 
 func (h *BotHandler) evaluateAchievementsOnPostCompletion(ctx context.Context, userID int64) {
