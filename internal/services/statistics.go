@@ -17,6 +17,13 @@ type StepStats struct {
 	Count     int
 }
 
+type AsteriskStepStats struct {
+	StepID        int64
+	StepOrder     int
+	AnsweredCount int
+	SkippedCount  int
+}
+
 type Statistics struct {
 	StepStats []StepStats
 	Leaders   []*models.User
@@ -223,6 +230,56 @@ func (s *StatisticsService) GetUserAchievementCount(userID int64) (int, error) {
 	return s.achievementRepo.CountUserAchievements(userID)
 }
 
+func (s *StatisticsService) GetUserAsteriskStats(userID int64) (answered int, total int, err error) {
+	total, err = s.stepRepo.GetAsteriskStepsCount()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	answered, err = s.stepRepo.GetAnsweredAsteriskStepsCount(userID)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return answered, total, nil
+}
+
+func (s *StatisticsService) GetAsteriskStepsStats() ([]AsteriskStepStats, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		rows, err := db.Query(`
+			SELECT 
+				s.id,
+				s.step_order,
+				COALESCE(SUM(CASE WHEN p.status = 'approved' THEN 1 ELSE 0 END), 0) as answered_count,
+				COALESCE(SUM(CASE WHEN p.status = 'skipped' THEN 1 ELSE 0 END), 0) as skipped_count
+			FROM steps s
+			LEFT JOIN user_progress p ON s.id = p.step_id AND (p.status = 'approved' OR p.status = 'skipped')
+			WHERE s.is_asterisk = TRUE AND s.is_active = TRUE AND s.is_deleted = FALSE
+			GROUP BY s.id, s.step_order
+			ORDER BY s.step_order
+		`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var stats []AsteriskStepStats
+		for rows.Next() {
+			var stat AsteriskStepStats
+			if err := rows.Scan(&stat.StepID, &stat.StepOrder, &stat.AnsweredCount, &stat.SkippedCount); err != nil {
+				return nil, err
+			}
+			// log.Printf("[ASTERISK_STATS] Step %d: answered=%d, skipped=%d", stat.StepOrder, stat.AnsweredCount, stat.SkippedCount)
+			stats = append(stats, stat)
+		}
+		return stats, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]AsteriskStepStats), nil
+}
+
 func (s *StatisticsService) CalculateExtendedStats() (*ExtendedStatistics, error) {
 	basicStats, err := s.CalculateStats()
 	if err != nil {
@@ -415,11 +472,23 @@ func (s *StatisticsService) FormatCompletionStats(userID int64) string {
 		lines = append(lines, fmt.Sprintf("💡 Подсказки — наши друзья: использовано %d", hintsUsed))
 	}
 
+	// Вопросы со звёздочкой
+	answeredAsterisk, totalAsterisk, err := s.GetUserAsteriskStats(userID)
+	if err == nil && totalAsterisk > 0 {
+		if answeredAsterisk == totalAsterisk {
+			lines = append(lines, "⭐ Все вопросы со звёздочкой решены!")
+		} else if answeredAsterisk > 0 {
+			lines = append(lines, fmt.Sprintf("⭐ Вопросы со звёздочкой: %d из %d", answeredAsterisk, totalAsterisk))
+		} else {
+			lines = append(lines, fmt.Sprintf("⭐ Вопросы со звёздочкой: 0 из %d", totalAsterisk))
+		}
+	}
+
 	if len(lines) == 0 {
 		return ""
 	}
 
-	return "📊 Ваши результаты:\n" + strings.Join(lines, "\n")
+	return "\n📊 Ваши результаты:\n" + strings.Join(lines, "\n") + "\n"
 }
 
 func (s *StatisticsService) getUserDetailedAnswerStats(userID int64) (int, int, *time.Time, *time.Time, error) {
@@ -429,10 +498,17 @@ func (s *StatisticsService) getUserDetailedAnswerStats(userID int64) (int, int, 
 		err := db.QueryRow(`
 			SELECT 
 				COUNT(*), 
-				COALESCE(SUM(CASE WHEN hint_used = 1 THEN 1 ELSE 0 END), 0),
-				MIN(created_at),
-				MAX(created_at)
-			FROM user_answers WHERE user_id = ?
+				COALESCE(SUM(CASE WHEN ua.hint_used = 1 THEN 1 ELSE 0 END), 0),
+				MIN(ua.created_at),
+				MAX(ua.created_at)
+			FROM user_answers ua
+			WHERE ua.user_id = ?
+			AND NOT EXISTS (
+				SELECT 1 FROM user_progress up 
+				WHERE up.user_id = ua.user_id 
+				AND up.step_id = ua.step_id 
+				AND up.status = 'skipped'
+			)
 		`, userID).Scan(&totalAnswers, &hintsUsed, &firstTimeStr, &lastTimeStr)
 		return []interface{}{totalAnswers, hintsUsed, firstTimeStr, lastTimeStr}, err
 	})

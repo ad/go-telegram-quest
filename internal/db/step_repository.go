@@ -18,9 +18,9 @@ func NewStepRepository(queue *DBQueue) *StepRepository {
 func (r *StepRepository) Create(step *models.Step) (int64, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		res, err := db.Exec(`
-			INSERT INTO steps (step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
-		`, step.StepOrder, step.Text, step.AnswerType, step.HasAutoCheck, step.IsActive, step.IsDeleted, step.CorrectAnswerImage)
+			INSERT INTO steps (step_order, text, answer_type, has_auto_check, is_active, is_deleted, is_asterisk, correct_answer_image)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		`, step.StepOrder, step.Text, step.AnswerType, step.HasAutoCheck, step.IsActive, step.IsDeleted, step.IsAsterisk, step.CorrectAnswerImage)
 		if err != nil {
 			return nil, err
 		}
@@ -42,9 +42,10 @@ func (r *StepRepository) Update(step *models.Step) error {
 				has_auto_check = ?,
 				is_active = ?,
 				is_deleted = ?,
+				is_asterisk = ?,
 				correct_answer_image = ?
 			WHERE id = ?
-		`, step.StepOrder, step.Text, step.AnswerType, step.HasAutoCheck, step.IsActive, step.IsDeleted, step.CorrectAnswerImage, step.ID)
+		`, step.StepOrder, step.Text, step.AnswerType, step.HasAutoCheck, step.IsActive, step.IsDeleted, step.IsAsterisk, step.CorrectAnswerImage, step.ID)
 		return nil, err
 	})
 	return err
@@ -61,7 +62,7 @@ func (r *StepRepository) SoftDelete(id int64) error {
 func (r *StepRepository) GetActive() ([]*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		rows, err := db.Query(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, hint_text, hint_image, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, is_asterisk, correct_answer_image, hint_text, hint_image, created_at
 			FROM steps
 			WHERE is_active = TRUE AND is_deleted = FALSE
 			ORDER BY step_order
@@ -81,7 +82,7 @@ func (r *StepRepository) GetActive() ([]*models.Step, error) {
 func (r *StepRepository) GetAll() ([]*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		rows, err := db.Query(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, hint_text, hint_image, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, is_asterisk, correct_answer_image, hint_text, hint_image, created_at
 			FROM steps
 			WHERE is_deleted = FALSE
 			ORDER BY step_order
@@ -189,7 +190,7 @@ func (r *StepRepository) DeleteAnswers(stepID int64) error {
 func (r *StepRepository) GetByID(id int64) (*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		row := db.QueryRow(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, hint_text, hint_image, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, is_asterisk, correct_answer_image, hint_text, hint_image, created_at
 			FROM steps WHERE id = ?
 		`, id)
 
@@ -205,15 +206,17 @@ func (r *StepRepository) GetByID(id int64) (*models.Step, error) {
 	return result.(*models.Step), nil
 }
 
-func (r *StepRepository) GetNextActive(afterOrder int) (*models.Step, error) {
+func (r *StepRepository) GetNextActive(afterOrder int, userID int64) (*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		row := db.QueryRow(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, hint_text, hint_image, created_at
-			FROM steps
-			WHERE is_active = TRUE AND is_deleted = FALSE AND step_order > ?
-			ORDER BY step_order
+			SELECT s.id, s.step_order, s.text, s.answer_type, s.has_auto_check, s.is_active, s.is_deleted, s.is_asterisk, s.correct_answer_image, s.hint_text, s.hint_image, s.created_at
+			FROM steps s
+			LEFT JOIN user_progress p ON s.id = p.step_id AND p.user_id = ?
+			WHERE s.is_active = TRUE AND s.is_deleted = FALSE AND s.step_order > ?
+			AND (p.status IS NULL OR p.status != 'skipped')
+			ORDER BY s.step_order
 			LIMIT 1
-		`, afterOrder)
+		`, userID, afterOrder)
 
 		step, err := r.scanStep(row)
 		if err != nil {
@@ -230,7 +233,7 @@ func (r *StepRepository) GetNextActive(afterOrder int) (*models.Step, error) {
 func (r *StepRepository) GetPreviousActive(beforeOrder int) (*models.Step, error) {
 	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		row := db.QueryRow(`
-			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, correct_answer_image, hint_text, hint_image, created_at
+			SELECT id, step_order, text, answer_type, has_auto_check, is_active, is_deleted, is_asterisk, correct_answer_image, hint_text, hint_image, created_at
 			FROM steps
 			WHERE is_active = TRUE AND is_deleted = FALSE AND step_order < ?
 			ORDER BY step_order DESC
@@ -326,7 +329,7 @@ func (r *StepRepository) scanStep(row *sql.Row) (*models.Step, error) {
 	var correctImg, hintText, hintImage sql.NullString
 	err := row.Scan(
 		&step.ID, &step.StepOrder, &step.Text, &step.AnswerType,
-		&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &correctImg, &hintText, &hintImage, &step.CreatedAt,
+		&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &step.IsAsterisk, &correctImg, &hintText, &hintImage, &step.CreatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -350,7 +353,7 @@ func (r *StepRepository) scanSteps(db *sql.DB, rows *sql.Rows) ([]*models.Step, 
 		var correctImg, hintText, hintImage sql.NullString
 		if err := rows.Scan(
 			&step.ID, &step.StepOrder, &step.Text, &step.AnswerType,
-			&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &correctImg, &hintText, &hintImage, &step.CreatedAt,
+			&step.HasAutoCheck, &step.IsActive, &step.IsDeleted, &step.IsAsterisk, &correctImg, &hintText, &hintImage, &step.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -585,8 +588,49 @@ func (r *StepRepository) GetAnsweredStepsCount(userID int64) (int, error) {
 		err := db.QueryRow(`
 			SELECT COUNT(*) FROM user_progress p
 			JOIN steps s ON p.step_id = s.id
-			WHERE p.user_id = ? AND p.status = 'approved' 
+			WHERE p.user_id = ? 
+			AND (p.status = 'approved' OR (p.status = 'skipped' AND s.is_asterisk = TRUE))
 			AND s.is_active = TRUE AND s.is_deleted = FALSE
+		`, userID).Scan(&count)
+		return count, err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.(int), nil
+}
+
+func (r *StepRepository) SetAsterisk(id int64, isAsterisk bool) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		_, err := db.Exec(`UPDATE steps SET is_asterisk = ? WHERE id = ?`, isAsterisk, id)
+		return nil, err
+	})
+	return err
+}
+
+func (r *StepRepository) GetAsteriskStepsCount() (int, error) {
+	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var count int
+		err := db.QueryRow(`
+			SELECT COUNT(*) FROM steps 
+			WHERE is_asterisk = TRUE AND is_active = TRUE AND is_deleted = FALSE
+		`).Scan(&count)
+		return count, err
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.(int), nil
+}
+
+func (r *StepRepository) GetAnsweredAsteriskStepsCount(userID int64) (int, error) {
+	result, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var count int
+		err := db.QueryRow(`
+			SELECT COUNT(*) FROM user_progress p
+			JOIN steps s ON p.step_id = s.id
+			WHERE p.user_id = ? AND p.status = 'approved' 
+			AND s.is_asterisk = TRUE AND s.is_active = TRUE AND s.is_deleted = FALSE
 		`, userID).Scan(&count)
 		return count, err
 	})

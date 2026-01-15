@@ -10,6 +10,7 @@ type Step struct {
 	HasAutoCheck       bool
 	IsActive           bool
 	IsDeleted          bool
+	IsAsterisk         bool
 	CorrectAnswerImage string
 	Images             []StepImage
 	Answers            []string

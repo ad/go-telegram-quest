@@ -14,4 +14,5 @@ const (
 	StatusWaitingReview ProgressStatus = "waiting_review"
 	StatusApproved      ProgressStatus = "approved"
 	StatusRejected      ProgressStatus = "rejected"
+	StatusSkipped       ProgressStatus = "skipped"
 )

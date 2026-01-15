@@ -1810,6 +1810,38 @@ func (e *AchievementEngine) OnAnswerSubmitted(userID int64, answer string) ([]st
 	return awarded, nil
 }
 
+func (e *AchievementEngine) CheckAsteriskAchievement(userID int64, stepID int64) ([]string, error) {
+	step, err := e.stepRepo.GetByID(stepID)
+	if err != nil {
+		return nil, err
+	}
+
+	if !step.IsAsterisk {
+		return nil, nil
+	}
+
+	hasAchievement, err := e.achievementRepo.HasUserAchievement(userID, "asterisk")
+	if err != nil {
+		return nil, err
+	}
+
+	if hasAchievement {
+		return nil, nil
+	}
+
+	achievement, err := e.achievementRepo.GetByKey("asterisk")
+	if err != nil {
+		return nil, err
+	}
+
+	err = e.achievementRepo.AssignToUser(userID, achievement.ID, time.Now(), false)
+	if err != nil {
+		return nil, err
+	}
+
+	return []string{"asterisk"}, nil
+}
+
 func (e *AchievementEngine) OnPostCompletionActivity(userID int64) ([]string, error) {
 	completionStats, err := e.GetCompletionStats(userID)
 	if err != nil {

@@ -139,6 +139,8 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.deleteStep(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:toggle_step:"):
 		h.toggleStep(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:toggle_asterisk:"):
+		h.toggleAsterisk(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:answers:"):
 		h.showAnswersMenu(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:add_answer:"):
@@ -314,8 +316,11 @@ func (h *AdminHandler) showStepsList(ctx context.Context, chatID int64, messageI
 			status = "⏸️"
 		}
 
-		// Используем начало текста вопроса вместо номера шага
 		stepText := step.Text
+		if step.IsAsterisk {
+			stepText = "* " + stepText
+		}
+
 		if len([]rune(stepText)) > 30 {
 			stepText = string([]rune(stepText)[:30]) + "..."
 		}
@@ -407,6 +412,14 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 		{Text: toggleText, CallbackData: fmt.Sprintf("admin:toggle_step:%d", stepID)},
 	})
 
+	asteriskText := "⭐ Звёздочка"
+	if step.IsAsterisk {
+		asteriskText = "Убрать ⭐"
+	}
+	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+		{Text: asteriskText, CallbackData: fmt.Sprintf("admin:toggle_asterisk:%d", stepID)},
+	})
+
 	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
 		{Text: "🗑️ Удалить", CallbackData: fmt.Sprintf("admin:delete_step:%d", stepID)},
 	})
@@ -467,6 +480,26 @@ func (h *AdminHandler) toggleStep(ctx context.Context, chatID int64, messageID i
 	newActive := !step.IsActive
 	if err := h.stepRepo.SetActive(stepID, newActive); err != nil {
 		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при изменении статуса", nil)
+		return
+	}
+
+	h.startEditStep(ctx, chatID, messageID, fmt.Sprintf("admin:edit_step:%d", stepID))
+}
+
+func (h *AdminHandler) toggleAsterisk(ctx context.Context, chatID int64, messageID int, data string) {
+	stepID, _ := parseInt64(strings.TrimPrefix(data, "admin:toggle_asterisk:"))
+	if stepID == 0 {
+		return
+	}
+
+	step, err := h.stepRepo.GetByID(stepID)
+	if err != nil || step == nil {
+		return
+	}
+
+	newAsterisk := !step.IsAsterisk
+	if err := h.stepRepo.SetAsterisk(stepID, newAsterisk); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при изменении статуса звёздочки", nil)
 		return
 	}
 
@@ -1223,7 +1256,15 @@ func (h *AdminHandler) showUserDetails(ctx context.Context, chatID int64, messag
 	}
 
 	text := FormatUserDetails(details)
-	keyboard := BuildUserDetailsKeyboard(details.User, true) // Always true since this is in AdminHandler
+
+	if h.statsService != nil {
+		answeredAsterisk, totalAsterisk, err := h.statsService.GetUserAsteriskStats(userID)
+		if err == nil && totalAsterisk > 0 {
+			text += fmt.Sprintf("\n⭐ Вопросы со звёздочкой: %d из %d\n", answeredAsterisk, totalAsterisk)
+		}
+	}
+
+	keyboard := BuildUserDetailsKeyboard(details.User, true)
 	h.editOrSend(ctx, chatID, messageID, text, keyboard)
 }
 
@@ -2080,7 +2121,11 @@ func (h *AdminHandler) exportSteps(ctx context.Context, chatID int64, messageID 
 
 func (h *AdminHandler) formatStepForExport(step *models.Step) string {
 	var stepData strings.Builder
-	stepData.WriteString(step.Text + "\n")
+	stepText := step.Text
+	if step.IsAsterisk {
+		stepText = "* " + stepText
+	}
+	stepData.WriteString(stepText + "\n")
 
 	if len(step.Answers) > 0 {
 		stepData.WriteString("Ответы:\n")
@@ -2569,6 +2614,17 @@ func (h *AdminHandler) showStatistics(ctx context.Context, chatID int64, message
 	sb.WriteString("📋 Прогресс по шагам:\n")
 	for _, s := range stats.StepStats {
 		sb.WriteString(fmt.Sprintf("  Шаг %d: %d чел.\n", s.StepOrder, s.Count))
+	}
+
+	asteriskStats, err := h.statsService.GetAsteriskStepsStats()
+	if err == nil && len(asteriskStats) > 0 {
+		sb.WriteString("\n⭐ Вопросы со звёздочкой:\n")
+		totalAsterisk := len(asteriskStats)
+		sb.WriteString(fmt.Sprintf("  Всего вопросов: %d\n", totalAsterisk))
+		for _, as := range asteriskStats {
+			sb.WriteString(fmt.Sprintf("  Шаг %d: ответили %d чел., пропустили %d чел.\n",
+				as.StepOrder, as.AnsweredCount, as.SkippedCount))
+		}
 	}
 
 	if len(stats.Leaders) > 0 {

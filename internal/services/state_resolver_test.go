@@ -41,6 +41,7 @@ func setupTestDB(t *testing.T) (*db.DBQueue, func()) {
 			correct_answer_image TEXT,
 			hint_text TEXT DEFAULT '',
 			hint_image TEXT DEFAULT '',
+			is_asterisk BOOLEAN DEFAULT FALSE,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
@@ -220,4 +221,64 @@ func TestProperty4_StepCompletionTransitions(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestStateResolver_SkippedStepsNotReturnedAsCurrent(t *testing.T) {
+	queue, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	stepRepo := db.NewStepRepository(queue)
+	progressRepo := db.NewProgressRepository(queue)
+	userRepo := db.NewUserRepository(queue)
+	resolver := NewStateResolver(stepRepo, progressRepo, userRepo)
+
+	userID := int64(12345)
+
+	step1 := &models.Step{
+		StepOrder:  1,
+		Text:       "Step 1",
+		AnswerType: models.AnswerTypeText,
+		IsActive:   true,
+		IsAsterisk: true,
+	}
+	step1ID, err := stepRepo.Create(step1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	step2 := &models.Step{
+		StepOrder:  2,
+		Text:       "Step 2",
+		AnswerType: models.AnswerTypeText,
+		IsActive:   true,
+	}
+	step2ID, err := stepRepo.Create(step2)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := progressRepo.CreateSkipped(userID, step1ID); err != nil {
+		t.Fatalf("Failed to skip step 1: %v", err)
+	}
+
+	state, err := resolver.ResolveState(userID)
+	if err != nil {
+		t.Fatalf("Failed to resolve state: %v", err)
+	}
+
+	if state.IsCompleted {
+		t.Error("Quest should not be completed after skipping first step")
+	}
+
+	if state.CurrentStep == nil {
+		t.Fatal("Expected current step to be set")
+	}
+
+	if state.CurrentStep.ID != step2ID {
+		t.Errorf("Expected current step to be step 2 (ID %d), got step ID %d", step2ID, state.CurrentStep.ID)
+	}
+
+	if state.CurrentStep.StepOrder != 2 {
+		t.Errorf("Expected current step order to be 2, got %d", state.CurrentStep.StepOrder)
+	}
 }

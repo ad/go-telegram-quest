@@ -178,6 +178,11 @@ func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.Call
 		return
 	}
 
+	if strings.HasPrefix(callback.Data, "skip_step:") {
+		h.handleSkipStepCallback(ctx, callback)
+		return
+	}
+
 	if callback.From.ID != h.adminID {
 		log.Printf("[HANDLER] callback from non-admin user: %d", callback.From.ID)
 		return
@@ -298,6 +303,7 @@ func (h *BotHandler) sendStep(ctx context.Context, userID int64, step *models.St
 		HasAutoCheck: step.HasAutoCheck,
 		IsActive:     step.IsActive,
 		IsDeleted:    step.IsDeleted,
+		IsAsterisk:   step.IsAsterisk,
 		Images:       step.Images,
 		Answers:      step.Answers,
 		HintText:     step.HintText,
@@ -311,12 +317,11 @@ func (h *BotHandler) sendStep(ctx context.Context, userID int64, step *models.St
 		if err == nil && chatState != nil {
 			showHintButton = !chatState.CurrentStepHintUsed
 		} else {
-			// If no chat state exists or error, show hint button by default
 			showHintButton = true
 		}
 	}
 
-	h.msgManager.SendTaskWithHintButton(ctx, userID, stepWithHint, showHintButton)
+	h.msgManager.SendTaskWithButtons(ctx, userID, stepWithHint, showHintButton, step.IsAsterisk)
 }
 
 func (h *BotHandler) getProgressText(userID int64) string {
@@ -485,7 +490,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 		Status: models.StatusApproved,
 	})
 
-	nextStep, _ := h.stepRepo.GetNextActive(step.StepOrder)
+	nextStep, _ := h.stepRepo.GetNextActive(step.StepOrder, userID)
 	isLastStep := nextStep == nil
 
 	// log.Printf("[HANDLER] Evaluating achievements for user %d, isLastStep=%v", userID, isLastStep)
@@ -494,7 +499,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	if isLastStep {
 		h.evaluateAchievementsOnQuestCompleted(ctx, userID)
 	} else {
-		h.evaluateAchievementsOnCorrectAnswer(ctx, userID)
+		h.evaluateAchievementsOnCorrectAnswer(ctx, userID, step.ID)
 	}
 
 	// log.Printf("[HANDLER] Achievements evaluated, sending correct message to user %d", userID)
@@ -600,7 +605,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 }
 
 func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOrder int) {
-	nextStep, err := h.stepRepo.GetNextActive(currentOrder)
+	nextStep, err := h.stepRepo.GetNextActive(currentOrder, userID)
 	if err != nil || nextStep == nil {
 		h.evaluateAchievementsOnQuestCompleted(ctx, userID)
 
@@ -1093,6 +1098,56 @@ func (h *BotHandler) handleHintCallback(ctx context.Context, callback *tgmodels.
 	h.evaluateAchievementsOnHintUsed(ctx, userID)
 }
 
+func (h *BotHandler) handleSkipStepCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
+	parts := strings.Split(callback.Data, ":")
+	if len(parts) != 3 {
+		return
+	}
+
+	userID, _ := parseInt64(parts[1])
+	stepID, _ := parseInt64(parts[2])
+
+	if userID == 0 || stepID == 0 {
+		return
+	}
+
+	step, err := h.stepRepo.GetByID(stepID)
+	if err != nil || step == nil {
+		return
+	}
+
+	if !step.IsAsterisk {
+		h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: callback.ID,
+			Text:            "Этот шаг нельзя пропустить",
+		})
+		return
+	}
+
+	if err := h.progressRepo.CreateSkipped(userID, stepID); err != nil {
+		log.Printf("[HANDLER] Error creating skipped progress: %v", err)
+		h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: callback.ID,
+			Text:            "Ошибка при пропуске шага",
+		})
+		return
+	}
+
+	if callback.Message.Message != nil {
+		h.bot.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    callback.Message.Message.Chat.ID,
+			MessageID: callback.Message.Message.ID,
+		})
+	}
+
+	h.moveToNextStep(ctx, userID, step.StepOrder)
+
+	h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: callback.ID,
+		Text:            "Шаг пропущен",
+	})
+}
+
 func (h *BotHandler) sendHintMessage(ctx context.Context, userID int64, step *models.Step) (int, error) {
 	hintText := strings.TrimSpace(step.HintText)
 	if hintText == "" {
@@ -1138,7 +1193,7 @@ func (h *BotHandler) removeHintButton(ctx context.Context, userID int64, message
 	})
 }
 
-func (h *BotHandler) evaluateAchievementsOnCorrectAnswer(ctx context.Context, userID int64) {
+func (h *BotHandler) evaluateAchievementsOnCorrectAnswer(ctx context.Context, userID int64, stepID int64) {
 	if h.achievementEngine == nil {
 		return
 	}
@@ -1164,6 +1219,13 @@ func (h *BotHandler) evaluateAchievementsOnCorrectAnswer(ctx context.Context, us
 		log.Printf("[HANDLER] Error evaluating hint achievements: %v", err)
 	} else {
 		allAwarded = append(allAwarded, hintAwarded...)
+	}
+
+	asteriskAwarded, err := h.achievementEngine.CheckAsteriskAchievement(userID, stepID)
+	if err != nil {
+		log.Printf("[HANDLER] Error checking asterisk achievement: %v", err)
+	} else {
+		allAwarded = append(allAwarded, asteriskAwarded...)
 	}
 
 	if len(allAwarded) > 0 {

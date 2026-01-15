@@ -556,6 +556,19 @@ func getDefaultAchievements() []*models.Achievement {
 		IsActive: true,
 	})
 
+	achievements = append(achievements, &models.Achievement{
+		Key:         "asterisk",
+		Name:        "Вопрос со звёздочкой",
+		Description: "Ответить на вопрос со звёздочкой",
+		Category:    models.CategorySpecial,
+		Type:        models.TypeActionBased,
+		IsUnique:    false,
+		Conditions: models.AchievementConditions{
+			AsteriskAnswered: boolPtr(true),
+		},
+		IsActive: true,
+	})
+
 	// Manual achievements (awarded by admin)
 	achievements = append(achievements, &models.Achievement{
 		Key:         "veteran",

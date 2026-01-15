@@ -46,17 +46,17 @@ func (r *StateResolver) ResolveState(userID int64) (*UserState, error) {
 		return nil, err
 	}
 
-	approvedSteps := make(map[int64]bool)
+	completedSteps := make(map[int64]bool)
 	progressByStep := make(map[int64]*models.UserProgress)
 	for _, p := range userProgress {
 		progressByStep[p.StepID] = p
-		if p.Status == models.StatusApproved {
-			approvedSteps[p.StepID] = true
+		if p.Status == models.StatusApproved || p.Status == models.StatusSkipped {
+			completedSteps[p.StepID] = true
 		}
 	}
 
 	for _, step := range activeSteps {
-		if approvedSteps[step.ID] {
+		if completedSteps[step.ID] {
 			continue
 		}
 

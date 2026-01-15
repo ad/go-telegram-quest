@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS steps (
     correct_answer_image TEXT,
     hint_text TEXT DEFAULT '',
     hint_image TEXT DEFAULT '',
+    is_asterisk BOOLEAN DEFAULT FALSE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -161,6 +162,7 @@ ALTER TABLE user_answers ADD COLUMN hint_used BOOLEAN DEFAULT FALSE;
 ALTER TABLE admin_state ADD COLUMN new_hint_text TEXT DEFAULT '';
 ALTER TABLE admin_state ADD COLUMN target_user_id INTEGER DEFAULT 0;
 ALTER TABLE user_chat_state ADD COLUMN awaiting_next_step BOOLEAN DEFAULT FALSE;
+ALTER TABLE steps ADD COLUMN is_asterisk BOOLEAN DEFAULT FALSE;
 `
 
 func InitSchema(db *sql.DB) error {

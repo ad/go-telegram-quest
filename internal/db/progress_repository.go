@@ -26,9 +26,24 @@ func (r *ProgressRepository) Create(progress *models.UserProgress) error {
 	return err
 }
 
+func (r *ProgressRepository) CreateSkipped(userID, stepID int64) error {
+	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		now := time.Now()
+		_, err := db.Exec(`
+			INSERT INTO user_progress (user_id, step_id, status, completed_at)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(user_id, step_id) DO UPDATE SET
+				status = excluded.status,
+				completed_at = excluded.completed_at
+		`, userID, stepID, models.StatusSkipped, now)
+		return nil, err
+	})
+	return err
+}
+
 func (r *ProgressRepository) Update(progress *models.UserProgress) error {
 	_, err := r.queue.Execute(func(db *sql.DB) (interface{}, error) {
-		if progress.Status == models.StatusApproved && progress.CompletedAt == nil {
+		if (progress.Status == models.StatusApproved || progress.Status == models.StatusSkipped) && progress.CompletedAt == nil {
 			now := time.Now()
 			progress.CompletedAt = &now
 		}

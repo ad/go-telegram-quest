@@ -43,6 +43,7 @@ func setupTestDB(t *testing.T) (*db.DBQueue, func()) {
 			correct_answer_image TEXT,
 			hint_text TEXT DEFAULT '',
 			hint_image TEXT DEFAULT '',
+			is_asterisk BOOLEAN DEFAULT FALSE,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)
@@ -868,6 +869,7 @@ func setupTestDBWithAchievements(t *testing.T) (*db.DBQueue, func()) {
 			correct_answer_image TEXT,
 			hint_text TEXT DEFAULT '',
 			hint_image TEXT DEFAULT '',
+			is_asterisk BOOLEAN DEFAULT FALSE,
 			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)
 	`)

@@ -73,6 +73,7 @@ func TestInitializeDefaultAchievements(t *testing.T) {
 		"super_collector": {"Суперколлекционер", models.CategoryComposite, false, false},
 		"super_brain":     {"Супермозг", models.CategoryComposite, false, false},
 		"legend":          {"Легенда", models.CategoryComposite, false, false},
+		"asterisk":        {"Вопрос со звёздочкой", models.CategorySpecial, false, false},
 	}
 
 	for key, expected := range expectedAchievements {

@@ -78,10 +78,14 @@ func (m *MessageManager) SendMediaGroupWithRetry(ctx context.Context, params *bo
 }
 
 func (m *MessageManager) SendTask(ctx context.Context, userID int64, step *models.Step) error {
-	return m.SendTaskWithHintButton(ctx, userID, step, false)
+	return m.SendTaskWithButtons(ctx, userID, step, false, false)
 }
 
 func (m *MessageManager) SendTaskWithHintButton(ctx context.Context, userID int64, step *models.Step, showHintButton bool) error {
+	return m.SendTaskWithButtons(ctx, userID, step, showHintButton, false)
+}
+
+func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, step *models.Step, showHintButton bool, showSkipButton bool) error {
 	if err := m.DeletePreviousMessages(ctx, userID); err != nil {
 		return err
 	}
@@ -93,14 +97,31 @@ func (m *MessageManager) SendTaskWithHintButton(ctx context.Context, userID int6
 	}
 
 	var keyboard *tgmodels.InlineKeyboardMarkup
-	if showHintButton && step.HasHint() {
-		keyboard = &tgmodels.InlineKeyboardMarkup{
-			InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
-				{{
+	if showHintButton && step.HasHint() || showSkipButton {
+		var buttons [][]tgmodels.InlineKeyboardButton
+
+		if showHintButton && step.HasHint() {
+			buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+				{
 					Text:         "💡 Подсказка",
 					CallbackData: fmt.Sprintf("hint:%d:%d", userID, step.ID),
-				}},
-			},
+				},
+			})
+		}
+
+		if showSkipButton {
+			buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+				{
+					Text:         "⏭ Пропустить",
+					CallbackData: fmt.Sprintf("skip_step:%d:%d", userID, step.ID),
+				},
+			})
+		}
+
+		if len(buttons) > 0 {
+			keyboard = &tgmodels.InlineKeyboardMarkup{
+				InlineKeyboard: buttons,
+			}
 		}
 	}
 

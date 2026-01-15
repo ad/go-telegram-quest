@@ -6,6 +6,7 @@ import (
 
 	"github.com/ad/go-telegram-quest/internal/models"
 	_ "modernc.org/sqlite"
+	"pgregory.net/rapid"
 )
 
 func setupTestDB(t *testing.T) (*sql.DB, *StepRepository) {
@@ -170,4 +171,159 @@ func TestCanMoveDown(t *testing.T) {
 	if canMove {
 		t.Error("Last step should not be able to move down")
 	}
+}
+
+func TestProperty5_SkippedStepsExcludedFromNextStepCalculation(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		testDB, err := sql.Open("sqlite", ":memory:")
+		if err != nil {
+			rt.Fatal(err)
+		}
+		defer testDB.Close()
+
+		if err := InitSchema(testDB); err != nil {
+			rt.Fatal(err)
+		}
+
+		queue := NewDBQueue(testDB)
+		repo := NewStepRepository(queue)
+		progressRepo := NewProgressRepository(queue)
+
+		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
+		numSteps := rapid.IntRange(3, 10).Draw(rt, "numSteps")
+
+		var stepIDs []int64
+		for i := 0; i < numSteps; i++ {
+			maxOrder, _ := repo.GetMaxOrder()
+			step := &models.Step{
+				StepOrder:    maxOrder + 1,
+				Text:         rapid.StringMatching(`[a-zA-Z ]{5,20}`).Draw(rt, "text"),
+				AnswerType:   models.AnswerTypeText,
+				HasAutoCheck: true,
+				IsActive:     true,
+				IsDeleted:    false,
+				IsAsterisk:   rapid.Bool().Draw(rt, "isAsterisk"),
+			}
+
+			id, err := repo.Create(step)
+			if err != nil {
+				rt.Fatal(err)
+			}
+			stepIDs = append(stepIDs, id)
+		}
+
+		if len(stepIDs) < 2 {
+			return
+		}
+
+		skipIndex := rapid.IntRange(0, len(stepIDs)-2).Draw(rt, "skipIndex")
+		skipStepID := stepIDs[skipIndex]
+
+		if err := progressRepo.CreateSkipped(userID, skipStepID); err != nil {
+			rt.Fatal(err)
+		}
+
+		skipStep, err := repo.GetByID(skipStepID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		nextStep, err := repo.GetNextActive(skipStep.StepOrder-1, userID)
+		if err != nil && err != sql.ErrNoRows {
+			rt.Fatal(err)
+		}
+
+		if nextStep != nil && nextStep.ID == skipStepID {
+			rt.Fatalf("GetNextActive returned skipped step: expected to skip step %d, but got it as next step", skipStepID)
+		}
+	})
+}
+
+func TestProperty9_SkippedStepsAllowProgression(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		testDB, err := sql.Open("sqlite", ":memory:")
+		if err != nil {
+			rt.Fatal(err)
+		}
+		defer testDB.Close()
+
+		if err := InitSchema(testDB); err != nil {
+			rt.Fatal(err)
+		}
+
+		queue := NewDBQueue(testDB)
+		repo := NewStepRepository(queue)
+		progressRepo := NewProgressRepository(queue)
+
+		userID := rapid.Int64Range(1, 1000000).Draw(rt, "userID")
+		numSteps := rapid.IntRange(3, 10).Draw(rt, "numSteps")
+		numAsteriskSteps := rapid.IntRange(1, numSteps-1).Draw(rt, "numAsteriskSteps")
+
+		var stepIDs []int64
+		var asteriskStepIDs []int64
+
+		for i := 0; i < numSteps; i++ {
+			maxOrder, _ := repo.GetMaxOrder()
+			isAsterisk := i < numAsteriskSteps
+			step := &models.Step{
+				StepOrder:    maxOrder + 1,
+				Text:         rapid.StringMatching(`[a-zA-Z ]{5,20}`).Draw(rt, "text"),
+				AnswerType:   models.AnswerTypeText,
+				HasAutoCheck: true,
+				IsActive:     true,
+				IsDeleted:    false,
+				IsAsterisk:   isAsterisk,
+			}
+
+			id, err := repo.Create(step)
+			if err != nil {
+				rt.Fatal(err)
+			}
+			stepIDs = append(stepIDs, id)
+			if isAsterisk {
+				asteriskStepIDs = append(asteriskStepIDs, id)
+			}
+		}
+
+		for _, stepID := range asteriskStepIDs {
+			if err := progressRepo.CreateSkipped(userID, stepID); err != nil {
+				rt.Fatal(err)
+			}
+		}
+
+		for _, stepID := range stepIDs {
+			if !contains(asteriskStepIDs, stepID) {
+				if err := progressRepo.Create(&models.UserProgress{
+					UserID: userID,
+					StepID: stepID,
+					Status: models.StatusApproved,
+				}); err != nil {
+					rt.Fatal(err)
+				}
+			}
+		}
+
+		answeredCount, err := repo.GetAnsweredStepsCount(userID)
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		activeCount, err := repo.GetActiveStepsCount()
+		if err != nil {
+			rt.Fatal(err)
+		}
+
+		if answeredCount != activeCount {
+			rt.Fatalf("Expected answered count (%d) to equal active count (%d) when all steps are either answered or skipped (asterisk)", answeredCount, activeCount)
+		}
+	})
+}
+
+func contains(slice []int64, item int64) bool {
+	for _, v := range slice {
+		if v == item {
+			return true
+		}
+	}
+	return false
 }

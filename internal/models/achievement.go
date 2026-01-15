@@ -47,6 +47,7 @@ type AchievementConditions struct {
 	ProgressReset         *bool    `json:"progress_reset,omitempty"`
 	TextOnImageTask       *bool    `json:"text_on_image_task,omitempty"`
 	ManualAward           *bool    `json:"manual_award,omitempty"`
+	AsteriskAnswered      *bool    `json:"asterisk_answered,omitempty"`
 }
 
 func (c *AchievementConditions) ToJSON() (string, error) {
