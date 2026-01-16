@@ -808,6 +808,11 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 	// 	displayName = user.DisplayName()
 	// }
 
+	msg := callback.Message.Message
+	if msg == nil {
+		return
+	}
+
 	switch action {
 	case "approve":
 		progress.Status = models.StatusApproved
@@ -816,6 +821,22 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 		}
 
 		h.appendToCallbackMessage(ctx, callback, "\n\n✅ Ответ одобрен")
+
+		h.bot.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
+			ChatID:    msg.Chat.ID,
+			MessageID: msg.ID,
+		})
+
+		state, _ := h.chatStateRepo.Get(userID)
+		if state != nil && state.LastTaskMessageID != 0 {
+			h.msgManager.DeleteMessage(ctx, userID, state.LastTaskMessageID)
+			h.chatStateRepo.Save(&models.ChatState{
+				UserID:                  userID,
+				LastTaskMessageID:       0,
+				LastUserAnswerMessageID: state.LastUserAnswerMessageID,
+				LastReactionMessageID:   state.LastReactionMessageID,
+			})
+		}
 
 		userAnswer, _ := h.answerRepo.GetUserAnswer(userID, stepID)
 		log.Printf("[CALLBACK] userID=%d stepID=%d userAnswer='%s'", userID, stepID, userAnswer)
@@ -832,6 +853,11 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 
 		h.appendToCallbackMessage(ctx, callback, "\n\n❌ Ответ отклонён")
 
+		h.bot.EditMessageReplyMarkup(ctx, &bot.EditMessageReplyMarkupParams{
+			ChatID:    msg.Chat.ID,
+			MessageID: msg.ID,
+		})
+
 		h.msgManager.DeleteUserAnswerAndReaction(ctx, userID)
 		settings, _ := h.settingsRepo.GetAll()
 		wrongMsg := "❌ Неверно, попробуйте ещё раз"
@@ -841,26 +867,6 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 
 		wrongEffects := []string{
 			"5104858069142078462", // 👎
-			// "5170149264327704981", // 🤬
-			// "5046551865169281494", // 😢
-			// "5125503964049048317", // 🤮
-			// "4988134357119009237", // 🥱
-			// "4927250902185673331", // 🥴
-			// "5122846324185629167", // 🤨
-			// "5066978240002786236", // 😐
-			// "4961092903720977544", // 🖕
-			// "4960944078809203417", // 😈
-			// "4925068178331010095", // 😡
-			// "4913510691920413388", // 😨
-			// "5089524022283076814", // 😫
-			// "5089594618660520655", // 😵‍💫
-			// "5026331292283700185", // 🤑
-			// "5071299733016806207", // 🤒
-			// "5086991627960976320", // 🤕
-			// "5066635132245378011", // 🤥
-			// "5091342528616072685", // 🤦‍♂
-			// "5120948558526153760", // 🥵
-			// "5026486074315113392", // 🥶
 		}
 		effectID := wrongEffects[rand.Intn(len(wrongEffects))]
 		h.msgManager.SendReactionWithEffect(ctx, userID, wrongMsg, effectID)

@@ -2457,11 +2457,11 @@ func FormatAchievementLeaders(rankings []services.UserAchievementRanking) string
 		case 2:
 			medal = "🥉 "
 		default:
-			medal = fmt.Sprintf("%d. ", i+1)
+			medal = fmt.Sprintf("%d\\. ", i+1)
 		}
 
 		sb.WriteString(fmt.Sprintf("%s%s: %d достижений\n",
-			medal, ranking.User.DisplayName(), ranking.AchievementCount))
+			medal, services.EscapeUserContent(ranking.User.DisplayName()), ranking.AchievementCount))
 	}
 
 	return sb.String()
@@ -2638,17 +2638,26 @@ func (h *AdminHandler) showStatistics(ctx context.Context, chatID int64, message
 
 	sb.WriteString("📋 *Прогресс по шагам*\n")
 	for _, s := range stats.StepStats {
-		sb.WriteString(fmt.Sprintf("  Шаг %d: %d чел\n", s.StepOrder, s.Count))
+		sb.WriteString(fmt.Sprintf("%d\\. %s:  %d чел\n", s.StepOrder, services.EscapeUserContent(truncateText(s.Text, 20)), s.Count))
 	}
 
 	asteriskStats, err := h.statsService.GetAsteriskStepsStats()
-	if err == nil && len(asteriskStats) > 0 {
+	if err != nil {
+		log.Printf("[ADMIN] Error GetAsteriskStepsStats: %v", err)
+	} else if len(asteriskStats) > 0 {
 		sb.WriteString("\n⭐ *Вопросы со звёздочкой*\n")
 		totalAsterisk := len(asteriskStats)
-		sb.WriteString(fmt.Sprintf("  Всего вопросов: %d\n", totalAsterisk))
+		sb.WriteString(fmt.Sprintf("Всего вопросов: %d\n", totalAsterisk))
 		for _, as := range asteriskStats {
-			sb.WriteString(fmt.Sprintf("  Шаг %d: ответили %d чел, пропустили %d чел\n",
-				as.StepOrder, as.AnsweredCount, as.SkippedCount))
+			sb.WriteString(
+				fmt.Sprintf(
+					"%d\\. %s: ответили %d, пропустили %d\n",
+					as.StepOrder,
+					services.EscapeUserContent(truncateText(as.Text, 20)),
+					as.AnsweredCount,
+					as.SkippedCount,
+				),
+			)
 		}
 	}
 
@@ -2659,7 +2668,13 @@ func (h *AdminHandler) showStatistics(ctx context.Context, chatID int64, message
 			maxLeaders = len(stats.Leaders)
 		}
 		for i := 0; i < maxLeaders; i++ {
-			sb.WriteString(fmt.Sprintf("  %d\\. %s\n", i+1, services.EscapeUserContent(stats.Leaders[i].DisplayName())))
+			sb.WriteString(
+				fmt.Sprintf(
+					"  %d\\. %s\n",
+					i+1,
+					services.EscapeUserContent(stats.Leaders[i].DisplayName()),
+				),
+			)
 		}
 	}
 

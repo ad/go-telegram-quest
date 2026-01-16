@@ -14,12 +14,14 @@ import (
 type StepStats struct {
 	StepID    int64
 	StepOrder int
+	Text      string
 	Count     int
 }
 
 type AsteriskStepStats struct {
 	StepID        int64
 	StepOrder     int
+	Text          string
 	AnsweredCount int
 	SkippedCount  int
 }
@@ -85,6 +87,7 @@ func (s *StatisticsService) CalculateStats() (*Statistics, error) {
 		stepStats = append(stepStats, StepStats{
 			StepID:    step.ID,
 			StepOrder: step.StepOrder,
+			Text:      step.Text,
 			Count:     count,
 		})
 	}
@@ -250,6 +253,7 @@ func (s *StatisticsService) GetAsteriskStepsStats() ([]AsteriskStepStats, error)
 			SELECT 
 				s.id,
 				s.step_order,
+				s.text,
 				COALESCE(SUM(CASE WHEN p.status = 'approved' THEN 1 ELSE 0 END), 0) as answered_count,
 				COALESCE(SUM(CASE WHEN p.status = 'skipped' THEN 1 ELSE 0 END), 0) as skipped_count
 			FROM steps s
@@ -266,7 +270,7 @@ func (s *StatisticsService) GetAsteriskStepsStats() ([]AsteriskStepStats, error)
 		var stats []AsteriskStepStats
 		for rows.Next() {
 			var stat AsteriskStepStats
-			if err := rows.Scan(&stat.StepID, &stat.StepOrder, &stat.AnsweredCount, &stat.SkippedCount); err != nil {
+			if err := rows.Scan(&stat.StepID, &stat.StepOrder, &stat.Text, &stat.AnsweredCount, &stat.SkippedCount); err != nil {
 				return nil, err
 			}
 			// log.Printf("[ASTERISK_STATS] Step %d: answered=%d, skipped=%d", stat.StepOrder, stat.AnsweredCount, stat.SkippedCount)
