@@ -647,7 +647,17 @@ func (h *AdminHandler) startEditSetting(ctx context.Context, chatID int64, messa
 
 	currentValue, _ := h.settingsRepo.Get(settingKey)
 
-	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("📝 Введите новое %s:\n\nТекущее значение:\n%s\n\n/cancel \\- отмена", settingName, currentValue), nil)
+	h.editOrSend(
+		ctx,
+		chatID,
+		messageID,
+		fmt.Sprintf(
+			"📝 Введите новое %s:\n\nТекущее значение:\n%s\n\n/cancel \\- отмена",
+			settingName,
+			services.EscapeUserContent(currentValue),
+		),
+		nil,
+	)
 }
 
 func (h *AdminHandler) handleStateInput(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
