@@ -42,6 +42,31 @@ func InitializeDefaultAchievements(db *sql.DB) error {
 	return nil
 }
 
+func UpdateAchievements(db *sql.DB) error {
+	achievements := getDefaultAchievements()
+
+	for _, achievement := range achievements {
+		conditionsJSON, err := achievement.Conditions.ToJSON()
+		if err != nil {
+			return err
+		}
+
+		_, err = db.Exec(`
+			UPDATE achievements 
+			SET name = ?, description = ?, category = ?, type = ?, is_unique = ?, conditions = ?, is_active = ?
+			WHERE key = ?
+		`, achievement.Name, achievement.Description, achievement.Category,
+			achievement.Type, achievement.IsUnique, conditionsJSON, achievement.IsActive, achievement.Key)
+		if err != nil {
+			log.Printf("Failed to update achievement %s: %v", achievement.Key, err)
+			return err
+		}
+		log.Printf("Updated achievement: %s", achievement.Key)
+	}
+
+	return nil
+}
+
 func getDefaultAchievements() []*models.Achievement {
 	var achievements []*models.Achievement
 
