@@ -121,7 +121,7 @@ func (h *BotHandler) handleMessage(ctx context.Context, msg *tgmodels.Message) {
 	if !shouldProcess {
 		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
-			Text:   notification,
+			Text:   services.EscapeUserContent(notification),
 		})
 		return
 	}
@@ -220,7 +220,7 @@ func (h *BotHandler) handleStart(ctx context.Context, msg *tgmodels.Message) {
 	if !shouldProcess {
 		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
-			Text:   notification,
+			Text:   services.EscapeUserContent(notification),
 		})
 		return
 	}
@@ -517,7 +517,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	settings, _ := h.settingsRepo.GetAll()
 	correctMsg := "✅ Правильно!"
 	if settings != nil && settings.CorrectAnswerMessage != "" {
-		correctMsg = services.EscapeUserContent(settings.CorrectAnswerMessage)
+		correctMsg = settings.CorrectAnswerMessage
 	}
 
 	if percentage > 0 {

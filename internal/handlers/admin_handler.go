@@ -883,7 +883,7 @@ func (h *AdminHandler) createStep(ctx context.Context, chatID int64, messageID i
 
 	h.bot.SendMessage(ctx, &bot.SendMessageParams{
 		ChatID: chatID,
-		Text:   fmt.Sprintf("✅ Шаг %d создан!", step.StepOrder),
+		Text:   fmt.Sprintf("✅ Шаг %d создан\\!", step.StepOrder),
 	})
 	h.showAdminMenu(ctx, chatID, 0)
 }
