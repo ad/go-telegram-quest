@@ -122,6 +122,12 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 		stepText = "Задание без текста"
 	}
 
+	starQuestion := ""
+
+	if showSkipButton {
+		starQuestion = "\n\n_Это вопрос с звездочкой, его можно пропустить_"
+	}
+
 	var keyboard *tgmodels.InlineKeyboardMarkup
 	if showHintButton && step.HasHint() || showSkipButton {
 		var buttons [][]tgmodels.InlineKeyboardButton
@@ -156,7 +162,7 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 	if len(step.Images) == 0 {
 		params := &bot.SendMessageParams{
 			ChatID: userID,
-			Text:   bot.EscapeMarkdownUnescaped(stepText),
+			Text:   bot.EscapeMarkdownUnescaped(stepText) + starQuestion,
 		}
 		if keyboard != nil {
 			params.ReplyMarkup = keyboard
@@ -170,7 +176,7 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 		params := &bot.SendPhotoParams{
 			ChatID:  userID,
 			Photo:   &tgmodels.InputFileString{Data: step.Images[0].FileID},
-			Caption: bot.EscapeMarkdownUnescaped(stepText),
+			Caption: bot.EscapeMarkdownUnescaped(stepText) + starQuestion,
 		}
 		if keyboard != nil {
 			params.ReplyMarkup = keyboard
@@ -199,7 +205,7 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 				Media: img.FileID,
 			}
 			if i == 0 {
-				photo.Caption = bot.EscapeMarkdownUnescaped(stepText)
+				photo.Caption = bot.EscapeMarkdownUnescaped(stepText) + starQuestion
 			}
 			media[i] = photo
 		}
@@ -212,7 +218,7 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 			// Если не удалось отправить медиа-группу, отправляем текстовое сообщение
 			textParams := &bot.SendMessageParams{
 				ChatID: userID,
-				Text:   bot.EscapeMarkdownUnescaped(stepText),
+				Text:   bot.EscapeMarkdownUnescaped(stepText) + starQuestion,
 			}
 			if keyboard != nil {
 				textParams.ReplyMarkup = keyboard
