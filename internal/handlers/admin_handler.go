@@ -652,7 +652,7 @@ func (h *AdminHandler) startEditSetting(ctx context.Context, chatID int64, messa
 		chatID,
 		messageID,
 		fmt.Sprintf(
-			"📝 Введите новое %s:\n\nТекущее значение:\n%s\n\n/cancel \\- отмена",
+			"📝 Введите новое %s:\n\nТекущее значение:\n`%s`\n\n/cancel \\- отмена",
 			settingName,
 			services.EscapeUserContent(currentValue),
 		),
