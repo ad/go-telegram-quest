@@ -97,10 +97,10 @@ func (n *AchievementNotifier) GetAchievementEmoji(achievement *models.Achievemen
 func (n *AchievementNotifier) FormatNotification(achievement *models.Achievement) string {
 	emoji := n.GetAchievementEmoji(achievement)
 	return fmt.Sprintf(
-		"🎉 Поздравляем! Вы получили достижение!\n\n%s %s\n%s",
+		"🎉 *Поздравляем, вы получили достижение\\!*\n\n%s `%s`\n\n_%s_",
 		emoji,
-		achievement.Name,
-		achievement.Description,
+		bot.EscapeMarkdownUnescaped(achievement.Name),
+		bot.EscapeMarkdownUnescaped(achievement.Description),
 	)
 }
 

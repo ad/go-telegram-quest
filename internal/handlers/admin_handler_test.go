@@ -8,6 +8,7 @@ import (
 	"github.com/ad/go-telegram-quest/internal/fsm"
 	"github.com/ad/go-telegram-quest/internal/models"
 	"github.com/ad/go-telegram-quest/internal/services"
+	"github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
 	"pgregory.net/rapid"
 )
@@ -232,7 +233,7 @@ func TestProperty14_AdminPanelAchievementDisplay(t *testing.T) {
 			rt.Error("Formatted output should contain achievement emoji")
 		}
 
-		if !strings.Contains(formatted, user.DisplayName()) {
+		if !strings.Contains(formatted, bot.EscapeMarkdownUnescaped(user.DisplayName())) {
 			rt.Errorf("Formatted output should contain user display name: %s", user.DisplayName())
 		}
 

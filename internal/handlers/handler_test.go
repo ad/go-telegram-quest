@@ -1117,7 +1117,7 @@ func TestAchievementIntegration_SecretAgentOnSpecificAnswer(t *testing.T) {
 		achievement := &models.Achievement{
 			Key:         "secret_agent",
 			Name:        "Секретный Агент",
-			Description: "Использовал секретную фразу",
+			Description: "Использовать секретную фразу",
 			Category:    models.CategorySpecial,
 			Type:        models.TypeActionBased,
 			IsUnique:    false,

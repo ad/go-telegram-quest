@@ -208,6 +208,7 @@ func TestAdminHandlerIntegration(t *testing.T) {
 		achievementEngine,
 		nil, // achievementNotifier
 		statsService,
+		nil,
 		"",
 	)
 

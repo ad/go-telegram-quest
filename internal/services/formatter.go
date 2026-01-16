@@ -105,7 +105,7 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 		return ""
 	}
 
-	result := "📊 Статистика прохождения:\n\n"
+	result := "📊 *Статистика прохождения*\n\n"
 
 	// Accuracy section
 	result += "🎯 Точность:\n"
@@ -115,7 +115,7 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 	result += "\n"
 
 	// Pace section
-	result += "⚡ Темп:\n"
+	result += "⚡ *Темп*\n"
 	if stats.AverageResponseTime != nil {
 		result += fmt.Sprintf("• Среднее время ответа: %s\n", FormatDurationRussian(*stats.AverageResponseTime))
 	} else {
@@ -140,7 +140,7 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 	result += "\n"
 
 	// Ranking section
-	result += "🏆 Рейтинг:\n"
+	result += "🏆 *Рейтинг*\n"
 	medal := ""
 	switch stats.LeaderboardPosition {
 	case 1:
@@ -154,8 +154,8 @@ func FormatUserStatistics(stats *UserStatistics, isCompleted bool) string {
 	result += "\n"
 
 	// Participation section
-	result += "📅 Участие:\n"
-	result += fmt.Sprintf("• Регистрация: %s (%s)\n", FormatDateTime(stats.RegistrationDate), FormatTimeAgo(stats.RegistrationDate))
+	result += "📅 *Участие*\n"
+	result += fmt.Sprintf("• Регистрация: %s \\(%s\\)\n", FormatDateTime(stats.RegistrationDate), FormatTimeAgo(stats.RegistrationDate))
 	if stats.FirstAnswerTime != nil {
 		result += fmt.Sprintf("• Первый ответ: %s\n", FormatDateTime(*stats.FirstAnswerTime))
 	} else {

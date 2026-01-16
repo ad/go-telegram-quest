@@ -31,6 +31,7 @@ type AdminHandler struct {
 	achievementEngine   *services.AchievementEngine
 	achievementNotifier *services.AchievementNotifier
 	statsService        *services.StatisticsService
+	errorManager        *services.ErrorManager
 	dbPath              string
 }
 
@@ -48,6 +49,7 @@ func NewAdminHandler(
 	achievementEngine *services.AchievementEngine,
 	achievementNotifier *services.AchievementNotifier,
 	statsService *services.StatisticsService,
+	errorManager *services.ErrorManager,
 	dbPath string,
 ) *AdminHandler {
 	return &AdminHandler{
@@ -64,6 +66,7 @@ func NewAdminHandler(
 		achievementEngine:   achievementEngine,
 		achievementNotifier: achievementNotifier,
 		statsService:        statsService,
+		errorManager:        errorManager,
 		dbPath:              dbPath,
 	}
 }
@@ -226,6 +229,7 @@ func (h *AdminHandler) editOrSend(ctx context.Context, chatID int64, messageID i
 			ChatID:    chatID,
 			MessageID: messageID,
 			Text:      text,
+			ParseMode: tgmodels.ParseModeMarkdown,
 		}
 		if keyboard != nil {
 			params.ReplyMarkup = keyboard
@@ -242,8 +246,9 @@ func (h *AdminHandler) editOrSend(ctx context.Context, chatID int64, messageID i
 
 func (h *AdminHandler) sendMessage(ctx context.Context, chatID int64, text string, keyboard *tgmodels.InlineKeyboardMarkup) {
 	params := &bot.SendMessageParams{
-		ChatID: chatID,
-		Text:   text,
+		ChatID:    chatID,
+		Text:      text,
+		ParseMode: tgmodels.ParseModeMarkdown,
 	}
 	if keyboard != nil {
 		params.ReplyMarkup = keyboard
@@ -251,6 +256,14 @@ func (h *AdminHandler) sendMessage(ctx context.Context, chatID int64, text strin
 	_, err := h.bot.SendMessage(ctx, params)
 	if err != nil {
 		log.Printf("[ADMIN] SendMessage error: %v", err)
+		if h.errorManager != nil {
+			h.errorManager.NotifyAdminWithCurl(
+				ctx,
+				chatID,
+				params,
+				fmt.Errorf("%s", "Ошибка telegram"),
+			)
+		}
 	}
 }
 
@@ -270,7 +283,7 @@ func (h *AdminHandler) showAdminMenu(ctx context.Context, chatID int64, messageI
 		},
 	}
 
-	h.editOrSend(ctx, chatID, messageID, "🔧 Админ-панель", keyboard)
+	h.editOrSend(ctx, chatID, messageID, "🔧 Админ\\-панель", keyboard)
 }
 
 func (h *AdminHandler) cancelOperation(ctx context.Context, chatID int64) {
@@ -289,7 +302,7 @@ func (h *AdminHandler) startAddStep(ctx context.Context, chatID int64, messageID
 	}
 	h.adminStateRepo.Save(state)
 
-	h.editOrSend(ctx, chatID, messageID, "📝 Введите текст нового шага:\n\n/cancel - отмена", nil)
+	h.editOrSend(ctx, chatID, messageID, "📝 Введите текст нового шага:\n\n/cancel \\- отмена", nil)
 }
 
 func (h *AdminHandler) showStepsList(ctx context.Context, chatID int64, messageID int) {
@@ -448,7 +461,7 @@ func (h *AdminHandler) startEditStep(ctx context.Context, chatID int64, messageI
 		{Text: "⬅️ Назад", CallbackData: "admin:list_steps"},
 	})
 
-	h.editOrSend(ctx, chatID, messageID, sb.String(), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
+	h.editOrSend(ctx, chatID, messageID, services.EscapeUserContent(sb.String()), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
 }
 
 func (h *AdminHandler) deleteStep(ctx context.Context, chatID int64, messageID int, data string) {
@@ -558,7 +571,7 @@ func (h *AdminHandler) startAddAnswer(ctx context.Context, chatID int64, message
 	}
 	h.adminStateRepo.Save(state)
 
-	h.editOrSend(ctx, chatID, messageID, "📝 Введите новый вариант ответа:\n\n/cancel - отмена", nil)
+	h.editOrSend(ctx, chatID, messageID, "📝 Введите новый вариант ответа:\n\n/cancel \\- отмена", nil)
 }
 
 func (h *AdminHandler) startDeleteAnswer(ctx context.Context, chatID int64, messageID int, data string) {
@@ -584,7 +597,7 @@ func (h *AdminHandler) startDeleteAnswer(ctx context.Context, chatID int64, mess
 	for i, ans := range step.Answers {
 		sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, ans))
 	}
-	sb.WriteString("\n/cancel - отмена")
+	sb.WriteString("\n/cancel \\- отмена")
 
 	h.editOrSend(ctx, chatID, messageID, sb.String(), nil)
 }
@@ -612,7 +625,7 @@ func (h *AdminHandler) showSettingsMenu(ctx context.Context, chatID int64, messa
 		{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
 	}
 
-	h.editOrSend(ctx, chatID, messageID, sb.String(), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
+	h.editOrSend(ctx, chatID, messageID, services.EscapeUserContent(sb.String()), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
 }
 
 func (h *AdminHandler) startEditSetting(ctx context.Context, chatID int64, messageID int, data string) {
@@ -634,7 +647,7 @@ func (h *AdminHandler) startEditSetting(ctx context.Context, chatID int64, messa
 
 	currentValue, _ := h.settingsRepo.Get(settingKey)
 
-	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("📝 Введите новое %s:\n\nТекущее значение:\n%s\n\n/cancel - отмена", settingName, currentValue), nil)
+	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("📝 Введите новое %s:\n\nТекущее значение:\n%s\n\n/cancel \\- отмена", settingName, currentValue), nil)
 }
 
 func (h *AdminHandler) handleStateInput(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
@@ -697,7 +710,7 @@ func (h *AdminHandler) startEditStepText(ctx context.Context, chatID int64, mess
 	}
 	h.adminStateRepo.Save(state)
 
-	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("📝 Введите новый текст для шага %d:\n\nТекущий текст:\n%s\n\n/cancel - отмена", step.StepOrder, step.Text), nil)
+	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("📝 Введите новый текст для шага %d:\n\nТекущий текст:\n%s\n\n/cancel \\- отмена", step.StepOrder, step.Text), nil)
 }
 
 func (h *AdminHandler) handleAddStepText(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
@@ -1006,7 +1019,7 @@ func (h *AdminHandler) startAddCorrectImage(ctx context.Context, chatID int64, m
 	}
 	h.adminStateRepo.Save(state)
 
-	h.editOrSend(ctx, chatID, messageID, "📷 Отправьте изображение для правильного ответа:\n\n/cancel - отмена", nil)
+	h.editOrSend(ctx, chatID, messageID, "📷 Отправьте изображение для правильного ответа:\n\n/cancel \\- отмена", nil)
 }
 
 func (h *AdminHandler) handleAddCorrectImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
@@ -1049,7 +1062,7 @@ func (h *AdminHandler) startReplaceCorrectImage(ctx context.Context, chatID int6
 	}
 	h.adminStateRepo.Save(state)
 
-	h.editOrSend(ctx, chatID, messageID, "🔄 Отправьте новое изображение для правильного ответа:\n\n/cancel - отмена", nil)
+	h.editOrSend(ctx, chatID, messageID, "🔄 Отправьте новое изображение для правильного ответа:\n\n/cancel \\- отмена", nil)
 }
 
 func (h *AdminHandler) handleReplaceCorrectImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
@@ -1127,11 +1140,15 @@ func (h *AdminHandler) showUserList(ctx context.Context, chatID int64, messageID
 	}
 
 	var text strings.Builder
-	text.WriteString(fmt.Sprintf("👥 Участники (стр. %d/%d)\n\n", result.CurrentPage, result.TotalPages))
+	if result.TotalPages > 1 {
+		text.WriteString(fmt.Sprintf("👥 Участники \\(стр\\. %d/%d\\)\n\n", result.CurrentPage, result.TotalPages))
+	} else {
+		text.WriteString("👥 *Участники*\n\n")
+	}
 
 	// Display statistics if available
 	if stats != nil {
-		text.WriteString("📊 Общая статистика:\n")
+		text.WriteString("📊 *Общая статистика*\n")
 		text.WriteString(fmt.Sprintf("👤 Всего участников: %d\n", stats.TotalUsers))
 		text.WriteString(fmt.Sprintf("✅ Завершили квест: %d\n", stats.CompletedUsers))
 		text.WriteString(fmt.Sprintf("🔄 В процессе: %d\n", stats.InProgressUsers))
@@ -1142,7 +1159,7 @@ func (h *AdminHandler) showUserList(ctx context.Context, chatID int64, messageID
 
 		// Show distribution by steps if there are users in progress
 		if len(stats.StepDistribution) > 0 {
-			text.WriteString("\n📍 Распределение по шагам:\n")
+			text.WriteString("\n📍 *Распределение по шагам*\n")
 
 			// Sort step orders for consistent display
 			var stepOrders []int
@@ -1171,7 +1188,7 @@ func (h *AdminHandler) showUserList(ctx context.Context, chatID int64, messageID
 				// Remove newlines to keep it on one line if any
 				displayTitle = strings.ReplaceAll(displayTitle, "\n", " ")
 
-				text.WriteString(fmt.Sprintf("   %d. %s: %d чел.\n", stepOrder, displayTitle, count))
+				text.WriteString(fmt.Sprintf("   %d\\. %s: %d чел\\.\n", stepOrder, services.EscapeUserContent(displayTitle), count))
 			}
 		}
 
@@ -1255,30 +1272,23 @@ func (h *AdminHandler) showUserDetails(ctx context.Context, chatID int64, messag
 		}
 	}
 
-	text := FormatUserDetails(details)
-
-	if h.statsService != nil {
-		answeredAsterisk, totalAsterisk, err := h.statsService.GetUserAsteriskStats(userID)
-		if err == nil && totalAsterisk > 0 {
-			text += fmt.Sprintf("\n⭐ Вопросы со звёздочкой: %d из %d\n", answeredAsterisk, totalAsterisk)
-		}
-	}
+	text := FormatUserDetails(h, details)
 
 	keyboard := BuildUserDetailsKeyboard(details.User, true)
 	h.editOrSend(ctx, chatID, messageID, text, keyboard)
 }
 
-func FormatUserDetails(details *services.UserDetails) string {
+func FormatUserDetails(h *AdminHandler, details *services.UserDetails) string {
 	var sb strings.Builder
-	sb.WriteString("👤 Информация о пользователе\n\n")
+	sb.WriteString("👤 *Информация о пользователе*\n\n")
 
 	if details.User.FirstName != "" || details.User.LastName != "" {
 		name := strings.TrimSpace(details.User.FirstName + " " + details.User.LastName)
-		fmt.Fprintf(&sb, "📛 Имя: %s\n", name)
+		fmt.Fprintf(&sb, "📛 Имя: %s\n", services.EscapeUserContent(name))
 	}
 
 	if details.User.Username != "" {
-		fmt.Fprintf(&sb, "🔗 Username: @%s\n", details.User.Username)
+		fmt.Fprintf(&sb, "🔗 Username: @%s\n", services.EscapeUserContent(details.User.Username))
 	}
 
 	fmt.Fprintf(&sb, "🆔 ID: %d\n\n", details.User.ID)
@@ -1299,15 +1309,22 @@ func FormatUserDetails(details *services.UserDetails) string {
 	}
 
 	if details.AchievementCount > 0 {
-		fmt.Fprintf(&sb, "\n🏆 Достижений: %d\n", details.AchievementCount)
+		fmt.Fprintf(&sb, "\n🏆 *Достижений* \\- %d\n", details.AchievementCount)
 		for _, a := range details.Achievements {
-			fmt.Fprintf(&sb, "  • %s\n", a.Name)
+			fmt.Fprintf(&sb, "  • %s\n", services.EscapeUserContent(a.Name))
 		}
 	}
 
 	if details.Statistics != nil {
 		sb.WriteString("\n")
 		sb.WriteString(services.FormatUserStatistics(details.Statistics, details.IsCompleted))
+	}
+
+	if h.statsService != nil {
+		answeredAsterisk, totalAsterisk, err := h.statsService.GetUserAsteriskStats(details.User.ID)
+		if err == nil && totalAsterisk > 0 {
+			sb.WriteString(fmt.Sprintf("\n⭐ Вопросы со звёздочкой: %d из %d\n", answeredAsterisk, totalAsterisk))
+		}
 	}
 
 	sb.WriteString("\n")
@@ -1622,7 +1639,7 @@ func (h *AdminHandler) startAddImage(ctx context.Context, chatID int64, messageI
 	}
 	h.adminStateRepo.Save(state)
 
-	h.editOrSend(ctx, chatID, messageID, "📷 Отправьте изображение для добавления:\n\n/cancel - отмена", nil)
+	h.editOrSend(ctx, chatID, messageID, "📷 Отправьте изображение для добавления:\n\n/cancel \\- отмена", nil)
 }
 
 func (h *AdminHandler) startReplaceImage(ctx context.Context, chatID int64, messageID int, data string) {
@@ -1649,7 +1666,7 @@ func (h *AdminHandler) startReplaceImage(ctx context.Context, chatID int64, mess
 	for i, img := range step.Images {
 		sb.WriteString(fmt.Sprintf("%d. Изображение (ID: %s)\n", i+1, img.FileID[:10]+"..."))
 	}
-	sb.WriteString("\n/cancel - отмена")
+	sb.WriteString("\n/cancel \\- отмена")
 
 	h.editOrSend(ctx, chatID, messageID, sb.String(), nil)
 }
@@ -1677,7 +1694,7 @@ func (h *AdminHandler) startDeleteImage(ctx context.Context, chatID int64, messa
 	for i, img := range step.Images {
 		sb.WriteString(fmt.Sprintf("%d. Изображение (ID: %s)\n", i+1, img.FileID[:10]+"..."))
 	}
-	sb.WriteString("\n/cancel - отмена")
+	sb.WriteString("\n/cancel \\- отмена")
 
 	h.editOrSend(ctx, chatID, messageID, sb.String(), nil)
 }
@@ -1874,7 +1891,7 @@ func (h *AdminHandler) startAddHint(ctx context.Context, chatID int64, messageID
 	}
 	h.adminStateRepo.Save(state)
 
-	h.editOrSend(ctx, chatID, messageID, "📝 Введите текст подсказки:\n\n/cancel - отмена", nil)
+	h.editOrSend(ctx, chatID, messageID, "📝 Введите текст подсказки:\n\n/cancel \\- отмена", nil)
 }
 
 func (h *AdminHandler) handleAddHintText(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
@@ -1942,7 +1959,7 @@ func (h *AdminHandler) startEditHintText(ctx context.Context, chatID int64, mess
 	}
 	h.adminStateRepo.Save(state)
 
-	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("📝 Введите новый текст подсказки:\n\nТекущий текст:\n%s\n\n/cancel - отмена", step.HintText), nil)
+	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("📝 Введите новый текст подсказки:\n\nТекущий текст:\n%s\n\n/cancel \\- отмена", step.HintText), nil)
 }
 
 func (h *AdminHandler) handleEditHintText(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
@@ -1986,7 +2003,7 @@ func (h *AdminHandler) startEditHintImage(ctx context.Context, chatID int64, mes
 	}
 	h.adminStateRepo.Save(state)
 
-	h.editOrSend(ctx, chatID, messageID, "🖼 Отправьте новое изображение для подсказки:\n\n/cancel - отмена", nil)
+	h.editOrSend(ctx, chatID, messageID, "🖼 Отправьте новое изображение для подсказки:\n\n/cancel \\- отмена", nil)
 }
 
 func (h *AdminHandler) handleEditHintImage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
@@ -2219,14 +2236,14 @@ func (h *AdminHandler) showUserAchievements(ctx context.Context, chatID int64, m
 
 func (h *AdminHandler) FormatUserAchievements(user *models.User, summary *services.UserAchievementSummary, userID int64) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("🏆 Достижения пользователя %s\n\n", user.DisplayName()))
+	sb.WriteString(fmt.Sprintf("🏆 *Достижения пользователя*\n %s\n\n", services.EscapeUserContent(user.DisplayName())))
 
 	if summary.TotalCount == 0 {
 		sb.WriteString("У пользователя пока нет достижений")
 		return sb.String()
 	}
 
-	sb.WriteString(fmt.Sprintf("Всего достижений: %d\n\n", summary.TotalCount))
+	sb.WriteString(fmt.Sprintf("*Всего достижений*: %d\n\n", summary.TotalCount))
 
 	categoryNames := map[models.AchievementCategory]string{
 		models.CategoryProgress:   "📈 Прогресс",
@@ -2253,11 +2270,10 @@ func (h *AdminHandler) FormatUserAchievements(user *models.User, summary *servic
 		}
 
 		categoryName := categoryNames[category]
-		sb.WriteString(fmt.Sprintf("%s:\n", categoryName))
+		sb.WriteString(fmt.Sprintf("*%s*\n", services.EscapeUserContent(categoryName)))
 
 		for _, details := range achievements {
-			sb.WriteString(fmt.Sprintf("  • %s\n", details.Achievement.Name))
-			sb.WriteString(fmt.Sprintf("    %s\n", details.EarnedAt))
+			sb.WriteString(fmt.Sprintf("  • %s %s\n", services.EscapeUserContent(details.Achievement.Name), services.EscapeUserContent(details.EarnedAt)))
 		}
 		sb.WriteString("\n")
 	}
@@ -2266,7 +2282,7 @@ func (h *AdminHandler) FormatUserAchievements(user *models.User, summary *servic
 	if h.achievementNotifier != nil {
 		stickerPackMessage := h.achievementNotifier.FormatStickerPackMessage(userID)
 		if stickerPackMessage != "" {
-			sb.WriteString(stickerPackMessage)
+			sb.WriteString(services.EscapeUserContent(stickerPackMessage))
 			sb.WriteString("\n\n")
 		}
 	}
@@ -2277,7 +2293,7 @@ func (h *AdminHandler) FormatUserAchievements(user *models.User, summary *servic
 // FormatUserAchievements - функция для тестов
 func FormatUserAchievements(user *models.User, summary *services.UserAchievementSummary) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("🏆 Достижения пользователя %s\n\n", user.DisplayName()))
+	sb.WriteString(fmt.Sprintf("🏆 Достижения пользователя %s\n\n", services.EscapeUserContent(user.DisplayName())))
 
 	if summary.TotalCount == 0 {
 		sb.WriteString("У пользователя пока нет достижений")
@@ -2349,9 +2365,9 @@ func (h *AdminHandler) showAchievementStatistics(ctx context.Context, chatID int
 
 func FormatAchievementStatistics(stats *services.AchievementStatistics) string {
 	var sb strings.Builder
-	sb.WriteString("🏆 Статистика достижений\n\n")
+	sb.WriteString("🏆 *Статистика достижений*\n\n")
 
-	sb.WriteString("📊 Общая информация:\n")
+	sb.WriteString("📊 *Общая информация*\n")
 	sb.WriteString(fmt.Sprintf("• Всего достижений: %d\n", stats.TotalAchievements))
 	sb.WriteString(fmt.Sprintf("• Выдано достижений: %d\n", stats.TotalUserAchievements))
 	sb.WriteString(fmt.Sprintf("• Участников: %d\n\n", stats.TotalUsers))
@@ -2365,15 +2381,15 @@ func FormatAchievementStatistics(stats *services.AchievementStatistics) string {
 		models.CategoryUnique:     "👑 Уникальные",
 	}
 
-	sb.WriteString("📁 По категориям:\n")
+	sb.WriteString("📁 *По категориям*\n")
 	for category, count := range stats.AchievementsByCategory {
 		name := categoryNames[category]
-		sb.WriteString(fmt.Sprintf("• %s: %d\n", name, count))
+		sb.WriteString(fmt.Sprintf("• %s: %d\n", services.EscapeUserContent(name), count))
 	}
 	sb.WriteString("\n")
 
 	if len(stats.PopularAchievements) > 0 {
-		sb.WriteString("🔥 Популярные достижения:\n")
+		sb.WriteString("🔥 *Популярные достижения*\n")
 		displayCount := 10
 		if len(stats.PopularAchievements) < displayCount {
 			displayCount = len(stats.PopularAchievements)
@@ -2382,8 +2398,16 @@ func FormatAchievementStatistics(stats *services.AchievementStatistics) string {
 		for i := 0; i < displayCount; i++ {
 			pop := stats.PopularAchievements[i]
 			if pop.UserCount > 0 {
-				sb.WriteString(fmt.Sprintf("• %s: %d (%.1f%%)\n",
-					pop.Achievement.Name, pop.UserCount, pop.Percentage))
+				sb.WriteString(
+					services.EscapeUserContent(
+						fmt.Sprintf(
+							"• %s: %d (%.1f%%)\n",
+							pop.Achievement.Name,
+							pop.UserCount,
+							pop.Percentage,
+						),
+					),
+				)
 			}
 		}
 	}
@@ -2443,7 +2467,7 @@ func FormatAchievementLeaders(rankings []services.UserAchievementRanking) string
 	return sb.String()
 }
 func (h *AdminHandler) createBackup(ctx context.Context, chatID int64, messageID int) {
-	h.editOrSend(ctx, chatID, messageID, "💾 Создаю бэкап базы данных...", nil)
+	h.editOrSend(ctx, chatID, messageID, "💾 Создаю бэкап базы данных\\.\\.\\.", nil)
 
 	log.Printf("[BACKUP] Starting backup for database: %s", h.dbPath)
 
@@ -2464,7 +2488,8 @@ func (h *AdminHandler) createBackup(ctx context.Context, chatID int64, messageID
 			Filename: filename,
 			Data:     strings.NewReader(backupData),
 		},
-		Caption: fmt.Sprintf("💾 Бэкап базы данных\n📅 Создан: %s", time.Now().Format("02.01.2006 15:04:05")),
+		ParseMode: tgmodels.ParseModeMarkdown,
+		Caption:   fmt.Sprintf("💾 *Бэкап базы данных*\n\n📅 Создан: %s", services.EscapeUserContent(time.Now().Format("02.01.2006 15:04:05"))),
 	}
 
 	_, err = h.bot.SendDocument(ctx, params)
@@ -2609,32 +2634,32 @@ func (h *AdminHandler) showStatistics(ctx context.Context, chatID int64, message
 	}
 
 	var sb strings.Builder
-	sb.WriteString("📊 Статистика квеста\n\n")
+	sb.WriteString("📊 *Статистика квеста*\n\n")
 
-	sb.WriteString("📋 Прогресс по шагам:\n")
+	sb.WriteString("📋 *Прогресс по шагам*\n")
 	for _, s := range stats.StepStats {
-		sb.WriteString(fmt.Sprintf("  Шаг %d: %d чел.\n", s.StepOrder, s.Count))
+		sb.WriteString(fmt.Sprintf("  Шаг %d: %d чел\n", s.StepOrder, s.Count))
 	}
 
 	asteriskStats, err := h.statsService.GetAsteriskStepsStats()
 	if err == nil && len(asteriskStats) > 0 {
-		sb.WriteString("\n⭐ Вопросы со звёздочкой:\n")
+		sb.WriteString("\n⭐ *Вопросы со звёздочкой*\n")
 		totalAsterisk := len(asteriskStats)
 		sb.WriteString(fmt.Sprintf("  Всего вопросов: %d\n", totalAsterisk))
 		for _, as := range asteriskStats {
-			sb.WriteString(fmt.Sprintf("  Шаг %d: ответили %d чел., пропустили %d чел.\n",
+			sb.WriteString(fmt.Sprintf("  Шаг %d: ответили %d чел, пропустили %d чел\n",
 				as.StepOrder, as.AnsweredCount, as.SkippedCount))
 		}
 	}
 
 	if len(stats.Leaders) > 0 {
-		sb.WriteString("\n🏆 Лидеры:\n")
+		sb.WriteString("\n🏆 *Лидеры*\n")
 		maxLeaders := 10
 		if len(stats.Leaders) < maxLeaders {
 			maxLeaders = len(stats.Leaders)
 		}
 		for i := 0; i < maxLeaders; i++ {
-			sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, stats.Leaders[i].DisplayName()))
+			sb.WriteString(fmt.Sprintf("  %d\\. %s\n", i+1, services.EscapeUserContent(stats.Leaders[i].DisplayName())))
 		}
 	}
 
@@ -2681,7 +2706,7 @@ func (h *AdminHandler) startSendMessage(ctx context.Context, chatID int64, messa
 	h.adminStateRepo.Save(state)
 
 	// Display instructions with /cancel option
-	instructions := fmt.Sprintf("💬 Отправка сообщения пользователю %s\n\n📝 Введите текст сообщения:\n\n/cancel - отмена операции", user.DisplayName())
+	instructions := fmt.Sprintf("💬 Отправка сообщения пользователю %s\n\n📝 Введите текст сообщения:\n\n/cancel \\- отмена операции", services.EscapeUserContent(user.DisplayName()))
 	h.editOrSend(ctx, chatID, messageID, instructions, nil)
 }
 
@@ -2744,13 +2769,13 @@ func (h *AdminHandler) sendMessageToUser(ctx context.Context, adminChatID int64,
 
 	// Show status to administrator
 	if err != nil {
-		statusMessage := fmt.Sprintf("❌ Ошибка при отправке сообщения пользователю %s:\n%v", user.DisplayName(), err)
+		statusMessage := fmt.Sprintf("❌ Ошибка при отправке сообщения пользователю %s:\n%v", services.EscapeUserContent(user.DisplayName()), err)
 		h.bot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: adminChatID,
 			Text:   statusMessage,
 		})
 	} else {
-		statusMessage := fmt.Sprintf("✅ Сообщение успешно отправлено пользователю %s", user.DisplayName())
+		statusMessage := fmt.Sprintf("✅ Сообщение успешно отправлено пользователю %s", services.EscapeUserContent(user.DisplayName()))
 		h.bot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID: adminChatID,
 			Text:   statusMessage,

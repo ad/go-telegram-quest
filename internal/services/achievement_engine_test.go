@@ -12,6 +12,7 @@ import (
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
+	"github.com/go-telegram/bot"
 	_ "modernc.org/sqlite"
 	"pgregory.net/rapid"
 )
@@ -2485,7 +2486,7 @@ func TestProperty8_ServiceIntegrationConsistency(t *testing.T) {
 		if !strings.Contains(notification, "Поздравляем") {
 			rt.Errorf("Manual achievement notification should contain congratulatory text")
 		}
-		if !strings.Contains(notification, achievement.Name) {
+		if !strings.Contains(notification, bot.EscapeMarkdownUnescaped(achievement.Name)) {
 			rt.Errorf("Manual achievement notification should contain achievement name")
 		}
 

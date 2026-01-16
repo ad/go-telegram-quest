@@ -414,9 +414,9 @@ func (s *StatisticsService) FormatCompletionStats(userID int64) string {
 	if totalUsers > 1 {
 		switch position {
 		case 1:
-			lines = append(lines, "🥇 Невероятно! Вы первый, кто покорил этот квест!")
+			lines = append(lines, "🥇 Невероятно! Вы раньше других прошли этот квест!")
 		case 2:
-			lines = append(lines, fmt.Sprintf("🥈 Отлично! Серебро ваше — вы второй из %d!", totalUsers))
+			lines = append(lines, fmt.Sprintf("🥈 Отлично! Серебро ваше — вам удалось занять второе место из %d!", totalUsers))
 		case 3:
 			lines = append(lines, fmt.Sprintf("🥉 Бронза! Вы в тройке лидеров из %d участников!", totalUsers))
 		default:

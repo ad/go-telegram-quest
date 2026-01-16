@@ -58,7 +58,7 @@ func NewBotHandler(
 	achievementService *services.AchievementService,
 	dbPath string,
 ) *BotHandler {
-	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo, questStateManager, achievementService, achievementEngine, achievementNotifier, statsService, dbPath)
+	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo, questStateManager, achievementService, achievementEngine, achievementNotifier, statsService, errorManager, dbPath)
 	questStateMiddleware := services.NewQuestStateMiddleware(questStateManager, adminID)
 
 	return &BotHandler{
@@ -157,7 +157,7 @@ func (h *BotHandler) sendShadowBanResponse(ctx context.Context, chatID int64) {
 	settings, _ := h.settingsRepo.GetAll()
 	wrongMsg := "❌ Неверно, попробуйте ещё раз"
 	if settings != nil && settings.WrongAnswerMessage != "" {
-		wrongMsg = settings.WrongAnswerMessage
+		wrongMsg = services.EscapeUserContent(settings.WrongAnswerMessage)
 	}
 	h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 		ChatID: chatID,
@@ -250,7 +250,7 @@ func (h *BotHandler) handleStart(ctx context.Context, msg *tgmodels.Message) {
 
 		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
-			Text:   finalMsg,
+			Text:   services.EscapeUserContent(finalMsg),
 		}, "5046509860389126442") // 🎉
 		return
 	}
@@ -263,7 +263,7 @@ func (h *BotHandler) handleStart(ctx context.Context, msg *tgmodels.Message) {
 		}
 		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
 			ChatID: msg.Chat.ID,
-			Text:   welcomeMsg,
+			Text:   services.EscapeUserContent(welcomeMsg),
 		})
 	}
 
@@ -298,7 +298,7 @@ func (h *BotHandler) sendStep(ctx context.Context, userID int64, step *models.St
 	stepWithHint := &models.Step{
 		ID:           step.ID,
 		StepOrder:    step.StepOrder,
-		Text:         progressText + "\n\n" + step.Text + answerHint,
+		Text:         progressText + "\n\n" + services.EscapeUserContent(step.Text) + services.EscapeUserContent(answerHint),
 		AnswerType:   step.AnswerType,
 		HasAutoCheck: step.HasAutoCheck,
 		IsActive:     step.IsActive,
@@ -440,7 +440,7 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 			settings, _ := h.settingsRepo.GetAll()
 			wrongMsg := "❌ Неверно, попробуйте ещё раз"
 			if settings != nil && settings.WrongAnswerMessage != "" {
-				wrongMsg = settings.WrongAnswerMessage
+				wrongMsg = services.EscapeUserContent(settings.WrongAnswerMessage)
 			}
 
 			wrongEffects := []string{
@@ -485,7 +485,7 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 			})
 		}
 		h.sendToAdminForReview(ctx, userID, step, msg.Text, nil)
-		h.msgManager.SendReaction(ctx, userID, "⏳ Ваш ответ отправлен на проверку, подождите пока его проверят.")
+		h.msgManager.SendReaction(ctx, userID, "⏳ *Ваш ответ отправлен на проверку, подождите пока его проверят*\\.")
 	}
 }
 
@@ -517,7 +517,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	settings, _ := h.settingsRepo.GetAll()
 	correctMsg := "✅ Правильно!"
 	if settings != nil && settings.CorrectAnswerMessage != "" {
-		correctMsg = settings.CorrectAnswerMessage
+		correctMsg = services.EscapeUserContent(settings.CorrectAnswerMessage)
 	}
 
 	if percentage > 0 {
@@ -553,7 +553,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 			_, err := h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
 				ChatID:          userID,
 				Photo:           &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
-				Caption:         correctMsg,
+				Caption:         bot.EscapeMarkdownUnescaped(correctMsg),
 				MessageEffectID: "5046509860389126442", // 🎉
 			})
 			if err != nil {
@@ -561,13 +561,13 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 				// Если не удалось отправить фото, отправляем текстовое сообщение
 				h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 					ChatID: userID,
-					Text:   correctMsg,
+					Text:   bot.EscapeMarkdownUnescaped(correctMsg),
 				}, "5046509860389126442") // 🎉
 			}
 		} else {
 			h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 				ChatID: userID,
-				Text:   correctMsg,
+				Text:   bot.EscapeMarkdownUnescaped(correctMsg),
 			}, "5046509860389126442") // 🎉
 		}
 
@@ -588,6 +588,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 			ChatID:          userID,
 			Photo:           &tgmodels.InputFileString{Data: step.CorrectAnswerImage},
 			Caption:         correctMsg,
+			ParseMode:       tgmodels.ParseModeMarkdown,
 			ReplyMarkup:     nextStepBtn,
 			MessageEffectID: effectID,
 		})
@@ -638,7 +639,7 @@ func (h *BotHandler) moveToNextStep(ctx context.Context, userID int64, currentOr
 		h.msgManager.DeletePreviousMessages(ctx, userID)
 		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
 			ChatID: userID,
-			Text:   finalMsg,
+			Text:   bot.EscapeMarkdownUnescaped(finalMsg),
 		}, "5046509860389126442") // 🎉
 
 		h.notifyAdminQuestCompleted(ctx, userID)
@@ -657,7 +658,7 @@ func (h *BotHandler) notifyAdminQuestCompleted(ctx context.Context, userID int64
 
 	h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
 		ChatID: h.adminID,
-		Text:   fmt.Sprintf("🏆 Пользователь %s завершил квест!", displayName),
+		Text:   fmt.Sprintf("🏆 Пользователь %s завершил квест\\!", services.EscapeUserContent(displayName)),
 	})
 }
 
@@ -835,7 +836,7 @@ func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels
 		settings, _ := h.settingsRepo.GetAll()
 		wrongMsg := "❌ Неверно, попробуйте ещё раз"
 		if settings != nil && settings.WrongAnswerMessage != "" {
-			wrongMsg = settings.WrongAnswerMessage
+			wrongMsg = services.EscapeUserContent(settings.WrongAnswerMessage)
 		}
 
 		wrongEffects := []string{
@@ -904,6 +905,7 @@ func (h *BotHandler) handleBlockUser(ctx context.Context, callback *tgmodels.Cal
 				ChatID:    msg.Chat.ID,
 				MessageID: msg.ID,
 				Caption:   newText,
+				ParseMode: tgmodels.ParseModeMarkdown,
 			})
 		} else {
 			newText = fmt.Sprintf("🚫 Заблокирован\n👤 %s", displayName)
@@ -911,6 +913,7 @@ func (h *BotHandler) handleBlockUser(ctx context.Context, callback *tgmodels.Cal
 				ChatID:    msg.Chat.ID,
 				MessageID: msg.ID,
 				Text:      newText,
+				ParseMode: tgmodels.ParseModeMarkdown,
 			})
 		}
 	}
@@ -969,12 +972,14 @@ func (h *BotHandler) appendToCallbackMessage(ctx context.Context, callback *tgmo
 			ChatID:    msg.Chat.ID,
 			MessageID: msg.ID,
 			Caption:   newCaption,
+			ParseMode: tgmodels.ParseModeMarkdown,
 		})
 		if isMessageNotFoundError(err) {
 			h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
-				ChatID:  msg.Chat.ID,
-				Photo:   &tgmodels.InputFileString{Data: msg.Photo[len(msg.Photo)-1].FileID},
-				Caption: newCaption,
+				ChatID:    msg.Chat.ID,
+				Photo:     &tgmodels.InputFileString{Data: msg.Photo[len(msg.Photo)-1].FileID},
+				Caption:   newCaption,
+				ParseMode: tgmodels.ParseModeMarkdown,
 			})
 		}
 	} else {
@@ -985,6 +990,7 @@ func (h *BotHandler) appendToCallbackMessage(ctx context.Context, callback *tgmo
 			ChatID:    msg.Chat.ID,
 			MessageID: msg.ID,
 			Text:      newText,
+			ParseMode: tgmodels.ParseModeMarkdown,
 		})
 		if isMessageNotFoundError(err) {
 			h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
@@ -1029,7 +1035,7 @@ func (h *BotHandler) sendToAdminForReview(ctx context.Context, userID int64, ste
 		displayName = user.DisplayName()
 	}
 
-	caption := fmt.Sprintf("👤 %s\n📋 Ответ на шаг %d\n📝 Задание: %s", displayName, step.StepOrder, step.Text)
+	caption := fmt.Sprintf("👤 %s\n📋 *Ответ на шаг %d*\n\n📝 _%s_", services.EscapeUserContent(displayName), step.StepOrder, services.EscapeUserContent(step.Text))
 
 	keyboard := &tgmodels.InlineKeyboardMarkup{
 		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
@@ -1046,14 +1052,15 @@ func (h *BotHandler) sendToAdminForReview(ctx context.Context, userID int64, ste
 	if textAnswer != "" {
 		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
 			ChatID:      h.adminID,
-			Text:        caption + "\n\n💬 " + textAnswer,
+			Text:        caption + "\n\n💬 `" + services.EscapeUserContent(textAnswer) + "`",
 			ReplyMarkup: keyboard,
 		})
 	} else if len(imageFileIDs) > 0 {
 		h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID:      h.adminID,
 			Photo:       &tgmodels.InputFileString{Data: imageFileIDs[0]},
-			Caption:     caption,
+			Caption:     services.EscapeUserContent(caption),
+			ParseMode:   tgmodels.ParseModeMarkdown,
 			ReplyMarkup: keyboard,
 		})
 	}
@@ -1175,16 +1182,16 @@ func (h *BotHandler) sendHintMessage(ctx context.Context, userID int64, step *mo
 
 	if step.HintImage != "" {
 		msg, err := h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
-			ChatID:  userID,
-			Photo:   &tgmodels.InputFileString{Data: step.HintImage},
-			Caption: hintText,
+			ChatID:    userID,
+			Photo:     &tgmodels.InputFileString{Data: step.HintImage},
+			Caption:   services.EscapeUserContent(hintText),
+			ParseMode: tgmodels.ParseModeMarkdown,
 		})
 		if err != nil {
 			log.Printf("[HANDLER] Failed to send hint photo to user %d: %v, sending text instead", userID, err)
-			// Если не удалось отправить фото, отправляем текстовое сообщение
 			msg, err = h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
 				ChatID: userID,
-				Text:   hintText,
+				Text:   services.EscapeUserContent(hintText),
 			})
 			if err != nil {
 				return 0, err
@@ -1196,7 +1203,7 @@ func (h *BotHandler) sendHintMessage(ctx context.Context, userID int64, step *mo
 
 	msg, err := h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
 		ChatID: userID,
-		Text:   hintText,
+		Text:   services.EscapeUserContent(hintText),
 	})
 	if err != nil {
 		return 0, err
@@ -1366,9 +1373,9 @@ func (h *BotHandler) forwardMessageToAdmin(ctx context.Context, msg *tgmodels.Me
 		if len(stepText) > 100 {
 			stepText = stepText[:100] + "..."
 		}
-		caption = fmt.Sprintf("💬 Сообщение от %s %s на вопрос \"%s\"", displayName, context, stepText)
+		caption = fmt.Sprintf("💬 Сообщение от %s %s на вопрос \"%s\"", services.EscapeUserContent(displayName), services.EscapeUserContent(context), services.EscapeUserContent(stepText))
 	} else {
-		caption = fmt.Sprintf("💬 Сообщение от %s %s", displayName, context)
+		caption = fmt.Sprintf("💬 Сообщение от %s %s", services.EscapeUserContent(displayName), services.EscapeUserContent(context))
 	}
 
 	keyboard := &tgmodels.InlineKeyboardMarkup{
@@ -1380,18 +1387,19 @@ func (h *BotHandler) forwardMessageToAdmin(ctx context.Context, msg *tgmodels.Me
 	if len(msg.Photo) > 0 {
 		fileID := msg.Photo[len(msg.Photo)-1].FileID
 		if msg.Caption != "" {
-			caption = caption + "\n\n📝 " + msg.Caption
+			caption = caption + "\n\n📝 " + services.EscapeUserContent(msg.Caption)
 		}
 		h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
 			ChatID:      h.adminID,
 			Photo:       &tgmodels.InputFileString{Data: fileID},
 			Caption:     caption,
+			ParseMode:   tgmodels.ParseModeMarkdown,
 			ReplyMarkup: keyboard,
 		})
 	} else if msg.Text != "" {
 		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
 			ChatID:      h.adminID,
-			Text:        caption + "\n\n💬 " + msg.Text,
+			Text:        caption + "\n\n💬 " + services.EscapeUserContent(msg.Text),
 			ReplyMarkup: keyboard,
 		})
 	}

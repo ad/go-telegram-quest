@@ -30,7 +30,12 @@ func NewMessageManager(b *bot.Bot, chatStateRepo *db.ChatStateRepository, errMgr
 }
 
 func (m *MessageManager) SendWithRetry(ctx context.Context, params *bot.SendMessageParams) (*tgmodels.Message, error) {
+	if params.ParseMode == "" {
+		params.ParseMode = tgmodels.ParseModeMarkdown
+	}
+
 	var lastErr error
+
 	for attempt := 0; attempt < m.maxRetry; attempt++ {
 		msg, err := m.bot.SendMessage(ctx, params)
 		if err == nil {
@@ -38,7 +43,9 @@ func (m *MessageManager) SendWithRetry(ctx context.Context, params *bot.SendMess
 		}
 		lastErr = err
 	}
+
 	m.errMgr.NotifyAdminWithCurl(ctx, params.ChatID.(int64), params, lastErr)
+
 	return nil, lastErr
 }
 
@@ -50,7 +57,12 @@ func (m *MessageManager) SendWithRetryAndEffect(ctx context.Context, params *bot
 }
 
 func (m *MessageManager) SendPhotoWithRetry(ctx context.Context, params *bot.SendPhotoParams) (*tgmodels.Message, error) {
+	if params.ParseMode == "" && params.Caption != "" {
+		params.ParseMode = tgmodels.ParseModeMarkdown
+	}
+
 	var lastErr error
+
 	for attempt := 0; attempt < m.maxRetry; attempt++ {
 		msg, err := m.bot.SendPhoto(ctx, params)
 		if err == nil {
@@ -58,13 +70,24 @@ func (m *MessageManager) SendPhotoWithRetry(ctx context.Context, params *bot.Sen
 		}
 		lastErr = err
 	}
+
 	chatID, _ := params.ChatID.(int64)
+
 	m.errMgr.NotifyAdminWithCurl(ctx, chatID, params, lastErr)
+
 	return nil, lastErr
 }
 
 func (m *MessageManager) SendMediaGroupWithRetry(ctx context.Context, params *bot.SendMediaGroupParams) ([]*tgmodels.Message, error) {
+	for i, media := range params.Media {
+		if photo, ok := media.(*tgmodels.InputMediaPhoto); ok && photo.Caption != "" && photo.ParseMode == "" {
+			photo.ParseMode = tgmodels.ParseModeMarkdown
+			params.Media[i] = photo
+		}
+	}
+
 	var lastErr error
+
 	for attempt := 0; attempt < m.maxRetry; attempt++ {
 		msgs, err := m.bot.SendMediaGroup(ctx, params)
 		if err == nil {
@@ -72,8 +95,11 @@ func (m *MessageManager) SendMediaGroupWithRetry(ctx context.Context, params *bo
 		}
 		lastErr = err
 	}
+
 	chatID, _ := params.ChatID.(int64)
+
 	m.errMgr.NotifyAdminWithCurl(ctx, chatID, params, lastErr)
+
 	return nil, lastErr
 }
 
@@ -130,7 +156,7 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 	if len(step.Images) == 0 {
 		params := &bot.SendMessageParams{
 			ChatID: userID,
-			Text:   stepText,
+			Text:   bot.EscapeMarkdownUnescaped(stepText),
 		}
 		if keyboard != nil {
 			params.ReplyMarkup = keyboard
@@ -144,7 +170,7 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 		params := &bot.SendPhotoParams{
 			ChatID:  userID,
 			Photo:   &tgmodels.InputFileString{Data: step.Images[0].FileID},
-			Caption: stepText,
+			Caption: bot.EscapeMarkdownUnescaped(stepText),
 		}
 		if keyboard != nil {
 			params.ReplyMarkup = keyboard
@@ -155,7 +181,7 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 			// Если не удалось отправить фото, отправляем текстовое сообщение
 			textParams := &bot.SendMessageParams{
 				ChatID: userID,
-				Text:   stepText,
+				Text:   bot.EscapeMarkdownUnescaped(stepText),
 			}
 			if keyboard != nil {
 				textParams.ReplyMarkup = keyboard
@@ -173,7 +199,7 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 				Media: img.FileID,
 			}
 			if i == 0 {
-				photo.Caption = stepText
+				photo.Caption = bot.EscapeMarkdownUnescaped(stepText)
 			}
 			media[i] = photo
 		}
@@ -186,7 +212,7 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 			// Если не удалось отправить медиа-группу, отправляем текстовое сообщение
 			textParams := &bot.SendMessageParams{
 				ChatID: userID,
-				Text:   stepText,
+				Text:   bot.EscapeMarkdownUnescaped(stepText),
 			}
 			if keyboard != nil {
 				textParams.ReplyMarkup = keyboard
