@@ -537,7 +537,7 @@ func (h *AdminHandler) showAnswersMenu(ctx context.Context, chatID int64, messag
 		sb.WriteString("Вариантов пока нет")
 	} else {
 		for i, ans := range step.Answers {
-			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, ans))
+			sb.WriteString(fmt.Sprintf("%d\\. %s\n", i+1, services.EscapeUserContent(ans)))
 		}
 	}
 
