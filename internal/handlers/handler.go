@@ -517,7 +517,7 @@ func (h *BotHandler) handleCorrectAnswer(ctx context.Context, userID int64, step
 	settings, _ := h.settingsRepo.GetAll()
 	correctMsg := "✅ Правильно!"
 	if settings != nil && settings.CorrectAnswerMessage != "" {
-		correctMsg = settings.CorrectAnswerMessage
+		correctMsg = services.EscapeUserContent(settings.CorrectAnswerMessage)
 	}
 
 	if percentage > 0 {
