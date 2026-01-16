@@ -2792,8 +2792,9 @@ func (h *AdminHandler) sendMessageToUser(ctx context.Context, adminChatID int64,
 	} else {
 		statusMessage := fmt.Sprintf("✅ Сообщение успешно отправлено пользователю %s", services.EscapeUserContent(user.DisplayName()))
 		h.bot.SendMessage(ctx, &bot.SendMessageParams{
-			ChatID: adminChatID,
-			Text:   statusMessage,
+			ChatID:    adminChatID,
+			Text:      statusMessage,
+			ParseMode: tgmodels.ParseModeMarkdown,
 		})
 	}
 

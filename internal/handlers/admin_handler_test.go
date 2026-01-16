@@ -394,7 +394,7 @@ func TestProperty14_AchievementLeadersDisplay(t *testing.T) {
 			}
 
 			for _, ranking := range rankings {
-				if !strings.Contains(formatted, ranking.User.DisplayName()) {
+				if !strings.Contains(formatted, bot.EscapeMarkdownUnescaped(ranking.User.DisplayName())) {
 					rt.Errorf("User '%s' should be in output", ranking.User.DisplayName())
 				}
 				if !strings.Contains(formatted, fmt.Sprintf("%d", ranking.AchievementCount)) {
