@@ -2,29 +2,24 @@ package services
 
 import (
 	"fmt"
+	"html"
 	"strings"
-
-	"github.com/go-telegram/bot"
 )
 
-func EscapeUserContent(text string) string {
-	return bot.EscapeMarkdownUnescaped(text)
-}
-
 func FormatBold(text string) string {
-	return fmt.Sprintf("*%s*", EscapeUserContent(text))
+	return fmt.Sprintf("<b>%s</b>", html.EscapeString(text))
 }
 
 func FormatItalic(text string) string {
-	return fmt.Sprintf("_%s_", EscapeUserContent(text))
+	return fmt.Sprintf("<i>%s</i>", html.EscapeString(text))
 }
 
 func FormatCode(text string) string {
-	return fmt.Sprintf("`%s`", EscapeUserContent(text))
+	return fmt.Sprintf("<pre>%s</pre>", html.EscapeString(text))
 }
 
 func FormatLink(text, url string) string {
-	return fmt.Sprintf("[%s](%s)", EscapeUserContent(text), EscapeUserContent(url))
+	return fmt.Sprintf("<a href=\"%s\">%s</a>", html.EscapeString(url), html.EscapeString(text))
 }
 
 func SafeConcat(parts ...string) string {

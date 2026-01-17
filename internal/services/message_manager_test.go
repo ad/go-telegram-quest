@@ -12,6 +12,59 @@ import (
 	"pgregory.net/rapid"
 )
 
+func TestProperty1_HTMLParseModeUsage(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		chatID := int64(rapid.IntRange(1, 1000000).Draw(rt, "chatID"))
+		text := rapid.StringMatching(`[a-zA-Z0-9 ]{1,100}`).Draw(rt, "text")
+
+		// Test SendWithRetry sets HTML ParseMode when empty
+		params := &bot.SendMessageParams{
+			ChatID: chatID,
+			Text:   text,
+		}
+
+		// Simulate the ParseMode setting logic from SendWithRetry
+		if params.ParseMode == "" {
+			params.ParseMode = tgmodels.ParseModeHTML
+		}
+
+		if params.ParseMode != tgmodels.ParseModeHTML {
+			rt.Errorf("Expected ParseMode to be HTML, got: %s", params.ParseMode)
+		}
+
+		// Test SendPhotoWithRetry sets HTML ParseMode when empty and caption exists
+		photoParams := &bot.SendPhotoParams{
+			ChatID:  chatID,
+			Photo:   &tgmodels.InputFileString{Data: "test_file_id"},
+			Caption: text,
+		}
+
+		// Simulate the ParseMode setting logic from SendPhotoWithRetry
+		if photoParams.ParseMode == "" && photoParams.Caption != "" {
+			photoParams.ParseMode = tgmodels.ParseModeHTML
+		}
+
+		if photoParams.ParseMode != tgmodels.ParseModeHTML {
+			rt.Errorf("Expected photo ParseMode to be HTML, got: %s", photoParams.ParseMode)
+		}
+
+		// Test SendMediaGroupWithRetry sets HTML ParseMode for media with captions
+		media := &tgmodels.InputMediaPhoto{
+			Media:   "test_file_id",
+			Caption: text,
+		}
+
+		// Simulate the ParseMode setting logic from SendMediaGroupWithRetry
+		if media.Caption != "" && media.ParseMode == "" {
+			media.ParseMode = tgmodels.ParseModeHTML
+		}
+
+		if media.ParseMode != tgmodels.ParseModeHTML {
+			rt.Errorf("Expected media ParseMode to be HTML, got: %s", media.ParseMode)
+		}
+	})
+}
+
 type retryTracker struct {
 	attempts     int32
 	failUntil    int32

@@ -12,7 +12,6 @@ import (
 
 	"github.com/ad/go-telegram-quest/internal/db"
 	"github.com/ad/go-telegram-quest/internal/models"
-	"github.com/go-telegram/bot"
 	_ "modernc.org/sqlite"
 	"pgregory.net/rapid"
 )
@@ -1330,8 +1329,6 @@ func TestProperty12_CompositeAchievementAutoEvaluation(t *testing.T) {
 	})
 }
 
-// Property 1: Winner Position Assignment
-// **Validates: Requirements 1.1, 1.2, 1.3, 1.4**
 func TestProperty1_WinnerPositionAssignment(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		queue, cleanup := setupAchievementEngineTestDB(t)
@@ -1435,8 +1432,6 @@ func TestProperty1_WinnerPositionAssignment(t *testing.T) {
 	})
 }
 
-// Property 2: Winner Achievement Uniqueness
-// **Validates: Requirements 1.5**
 func TestProperty2_WinnerAchievementUniqueness(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		queue, cleanup := setupAchievementEngineTestDB(t)
@@ -1533,8 +1528,6 @@ func TestProperty2_WinnerAchievementUniqueness(t *testing.T) {
 	})
 }
 
-// Property 5: Writer Achievement on Text to Image
-// **Validates: Requirements 3.1, 3.3**
 func TestProperty5_WriterAchievementOnTextToImage(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		queue, cleanup := setupAchievementEngineTestDB(t)
@@ -1649,7 +1642,6 @@ func TestProperty5_WriterAchievementOnTextToImage(t *testing.T) {
 	})
 }
 
-// Property 6: Backward Compatibility - Composite Achievements
 func TestProperty6_BackwardCompatibilityCompositeAchievements(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		queue, cleanup := setupAchievementEngineTestDB(t)
@@ -1781,7 +1773,6 @@ func TestProperty6_BackwardCompatibilityCompositeAchievements(t *testing.T) {
 	})
 }
 
-// Property 7: Winner and Completion Achievement Coexistence
 func TestProperty7_WinnerAndCompletionAchievementCoexistence(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		queue, cleanup := setupAchievementEngineTestDB(t)
@@ -2431,8 +2422,6 @@ func TestCompositeAchievementsExcludeManualAchievements(t *testing.T) {
 	}
 }
 
-// Property 8: Service Integration Consistency
-// **Validates: Requirements 3.5, 4.5**
 func TestProperty8_ServiceIntegrationConsistency(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		queue, cleanup := setupAchievementEngineTestDB(t)
@@ -2486,7 +2475,7 @@ func TestProperty8_ServiceIntegrationConsistency(t *testing.T) {
 		if !strings.Contains(notification, "Поздравляем") {
 			rt.Errorf("Manual achievement notification should contain congratulatory text")
 		}
-		if !strings.Contains(notification, bot.EscapeMarkdownUnescaped(achievement.Name)) {
+		if !strings.Contains(notification, achievement.Name) {
 			rt.Errorf("Manual achievement notification should contain achievement name")
 		}
 
@@ -2541,8 +2530,6 @@ func TestProperty8_ServiceIntegrationConsistency(t *testing.T) {
 	})
 }
 
-// Property 9: Backward Compatibility Preservation
-// **Validates: Requirements 6.1, 6.2, 6.3, 6.5**
 func TestProperty9_BackwardCompatibilityPreservation(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		queue, cleanup := setupAchievementEngineTestDB(t)
@@ -2785,7 +2772,6 @@ func TestProperty9_BackwardCompatibilityPreservation(t *testing.T) {
 	})
 }
 
-// Property 6: Manual Achievement Classification
 func TestProperty6_ManualAchievementClassification(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
 		queue, cleanup := setupAchievementEngineTestDB(t)

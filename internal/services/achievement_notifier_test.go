@@ -2,6 +2,7 @@ package services
 
 import (
 	"database/sql"
+	"html"
 	"strings"
 	"testing"
 
@@ -138,6 +139,72 @@ func TestProperty13_AchievementNotificationDelivery(t *testing.T) {
 			if !strings.Contains(notification.Message, notification.Achievement.Name) {
 				rt.Errorf("Notification message should contain achievement name")
 			}
+		}
+	})
+}
+
+func TestProperty9_ContentPreservation(t *testing.T) {
+	rapid.Check(t, func(rt *rapid.T) {
+		queue, cleanup := setupNotifierTestDB(t)
+		defer cleanup()
+
+		achievementRepo := db.NewAchievementRepository(queue)
+		notifier := &AchievementNotifier{
+			achievementRepo: achievementRepo,
+		}
+
+		categories := []models.AchievementCategory{
+			models.CategoryProgress,
+			models.CategoryCompletion,
+			models.CategorySpecial,
+			models.CategoryHints,
+			models.CategoryComposite,
+			models.CategoryUnique,
+		}
+
+		key := rapid.StringMatching(`[a-z_]{5,15}`).Draw(rt, "key")
+		name := rapid.StringMatching(`[А-Яа-яA-Za-z0-9 &<>"']{5,30}`).Draw(rt, "name")
+		description := rapid.StringMatching(`[А-Яа-яA-Za-z0-9 &<>"'.,!?]{10,100}`).Draw(rt, "description")
+		categoryIdx := rapid.IntRange(0, len(categories)-1).Draw(rt, "categoryIdx")
+		category := categories[categoryIdx]
+
+		achievement := createNotifierTestAchievement(t, achievementRepo, key, name, description, category)
+		notification := notifier.FormatNotification(achievement)
+
+		escapedName := html.EscapeString(achievement.Name)
+		escapedDescription := html.EscapeString(achievement.Description)
+
+		if !strings.Contains(notification, escapedName) {
+			rt.Errorf("Notification should contain properly escaped achievement name. Expected: %s, Got notification: %s", escapedName, notification)
+		}
+
+		if !strings.Contains(notification, escapedDescription) {
+			rt.Errorf("Notification should contain properly escaped achievement description. Expected: %s, Got notification: %s", escapedDescription, notification)
+		}
+
+		if !strings.Contains(notification, "🎉") {
+			rt.Errorf("Notification should preserve congratulatory emoji")
+		}
+
+		if !strings.Contains(notification, "Поздравляем") {
+			rt.Errorf("Notification should preserve congratulatory text")
+		}
+
+		emoji := notifier.GetAchievementEmoji(achievement)
+		if !strings.Contains(notification, emoji) {
+			rt.Errorf("Notification should preserve achievement emoji")
+		}
+
+		if !strings.Contains(notification, "<b>") || !strings.Contains(notification, "</b>") {
+			rt.Errorf("Notification should preserve HTML bold formatting")
+		}
+
+		if !strings.Contains(notification, "<code>") || !strings.Contains(notification, "</code>") {
+			rt.Errorf("Notification should preserve HTML pre formatting")
+		}
+
+		if !strings.Contains(notification, "<i>") || !strings.Contains(notification, "</i>") {
+			rt.Errorf("Notification should preserve HTML italic formatting")
 		}
 	})
 }

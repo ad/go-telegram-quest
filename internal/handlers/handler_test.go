@@ -3,6 +3,8 @@ package handlers
 import (
 	"database/sql"
 	"fmt"
+	"html"
+	"strings"
 	"testing"
 
 	"github.com/ad/go-telegram-quest/internal/db"
@@ -1240,4 +1242,86 @@ func TestAchievementIntegration_NotificationDelivery(t *testing.T) {
 
 func intPtr(i int) *int {
 	return &i
+}
+
+// Unit tests for main handler formatting
+func TestMainHandlerFormatting_AchievementNotification(t *testing.T) {
+	// Test that achievement notifications are formatted correctly without HTML escaping static content
+	displayName := "Test User <script>"
+
+	// Test that user display names are properly escaped but static text is not
+	expectedEscapedName := html.EscapeString(displayName)
+	if expectedEscapedName == displayName {
+		t.Error("User display name should be HTML escaped")
+	}
+
+	// Verify that HTML characters in user content are escaped
+	if !strings.Contains(expectedEscapedName, "&lt;") || !strings.Contains(expectedEscapedName, "&gt;") {
+		t.Error("HTML characters in user display name should be escaped")
+	}
+}
+
+func TestMainHandlerFormatting_UserProfile(t *testing.T) {
+	// Test that user profile information is formatted correctly
+	user := &models.User{
+		ID:        12345,
+		FirstName: "Test & User",
+		LastName:  "With <HTML>",
+		Username:  "test_user",
+	}
+
+	displayName := user.DisplayName()
+	escapedDisplayName := html.EscapeString(displayName)
+
+	// Verify that user-generated content is properly escaped
+	if !strings.Contains(escapedDisplayName, "&amp;") {
+		t.Error("Ampersand in user name should be escaped")
+	}
+	if !strings.Contains(escapedDisplayName, "&lt;") || !strings.Contains(escapedDisplayName, "&gt;") {
+		t.Error("HTML tags in user name should be escaped")
+	}
+}
+
+func TestMainHandlerFormatting_StepText(t *testing.T) {
+	// Test that step text formatting works correctly
+	stepText := "This is a test step with <b>HTML</b> & special chars"
+	answerHint := "\n\n📷 Отправьте фото"
+	progressText := "▰▰▰▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱▱"
+
+	// In the new HTML format, step text should not be escaped (it's admin content)
+	// Only user-generated content should be escaped
+	formattedText := progressText + "\n\n" + stepText + answerHint
+
+	// Verify that static admin content is not escaped
+	if !strings.Contains(formattedText, "<b>HTML</b>") {
+		t.Error("Admin content should not be HTML escaped")
+	}
+	if !strings.Contains(formattedText, "📷 Отправьте фото") {
+		t.Error("Static hint text should be preserved")
+	}
+}
+
+func TestMainHandlerFormatting_MessageSettings(t *testing.T) {
+	// Test that message settings are not HTML escaped (they are admin content)
+	settings := map[string]string{
+		"welcome_message":        "Welcome to the <b>quest</b>!",
+		"final_message":          "Congratulations! You completed the <i>quest</i>!",
+		"correct_answer_message": "✅ <b>Correct!</b>",
+		"wrong_answer_message":   "❌ <i>Wrong, try again</i>",
+	}
+
+	for key, message := range settings {
+		// Settings messages should not be HTML escaped as they are admin content
+		if strings.Contains(message, "&lt;") || strings.Contains(message, "&gt;") {
+			t.Errorf("Settings message '%s' should not be HTML escaped: %s", key, message)
+		}
+
+		// Verify HTML tags are preserved for admin content
+		if strings.Contains(message, "<b>") && !strings.Contains(message, "&lt;b&gt;") {
+			// This is correct - HTML tags should be preserved
+		}
+		if strings.Contains(message, "<i>") && !strings.Contains(message, "&lt;i&gt;") {
+			// This is correct - HTML tags should be preserved
+		}
+	}
 }

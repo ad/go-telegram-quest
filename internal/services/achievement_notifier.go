@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"fmt"
+	"html"
 	"log"
 
 	"github.com/ad/go-telegram-quest/internal/db"
@@ -97,10 +98,10 @@ func (n *AchievementNotifier) GetAchievementEmoji(achievement *models.Achievemen
 func (n *AchievementNotifier) FormatNotification(achievement *models.Achievement) string {
 	emoji := n.GetAchievementEmoji(achievement)
 	return fmt.Sprintf(
-		"🎉 *Поздравляем, вы получили достижение\\!*\n\n%s `%s`\n\n_%s_",
+		"🎉 <b>Вы получили достижение:</b> %s <code>%s</code>\n\n<i>%s</i>",
 		emoji,
-		bot.EscapeMarkdownUnescaped(achievement.Name),
-		bot.EscapeMarkdownUnescaped(achievement.Description),
+		html.EscapeString(achievement.Name),
+		html.EscapeString(achievement.Description),
 	)
 }
 

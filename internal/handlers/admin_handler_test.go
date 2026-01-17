@@ -8,7 +8,6 @@ import (
 	"github.com/ad/go-telegram-quest/internal/fsm"
 	"github.com/ad/go-telegram-quest/internal/models"
 	"github.com/ad/go-telegram-quest/internal/services"
-	"github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
 	"pgregory.net/rapid"
 )
@@ -233,7 +232,7 @@ func TestProperty14_AdminPanelAchievementDisplay(t *testing.T) {
 			rt.Error("Formatted output should contain achievement emoji")
 		}
 
-		if !strings.Contains(formatted, bot.EscapeMarkdownUnescaped(user.DisplayName())) {
+		if !strings.Contains(formatted, user.DisplayName()) {
 			rt.Errorf("Formatted output should contain user display name: %s", user.DisplayName())
 		}
 
@@ -394,7 +393,7 @@ func TestProperty14_AchievementLeadersDisplay(t *testing.T) {
 			}
 
 			for _, ranking := range rankings {
-				if !strings.Contains(formatted, bot.EscapeMarkdownUnescaped(ranking.User.DisplayName())) {
+				if !strings.Contains(formatted, ranking.User.DisplayName()) {
 					rt.Errorf("User '%s' should be in output", ranking.User.DisplayName())
 				}
 				if !strings.Contains(formatted, fmt.Sprintf("%d", ranking.AchievementCount)) {
@@ -1157,4 +1156,294 @@ func TestProperty9_IntegrationConsistency(t *testing.T) {
 			rt.Error("Whitespace-only message should fail validation")
 		}
 	})
+}
+
+// Unit tests for admin handler HTML formatting
+
+func TestUserDisplayNameEscaping(t *testing.T) {
+	tests := []struct {
+		name     string
+		user     *models.User
+		expected string
+	}{
+		{
+			name: "Normal name",
+			user: &models.User{
+				FirstName: "John",
+				LastName:  "Doe",
+			},
+			expected: "John Doe",
+		},
+		{
+			name: "Name with HTML characters",
+			user: &models.User{
+				FirstName: "John<script>",
+				LastName:  "Doe&Co",
+			},
+			expected: "John&lt;script&gt; Doe&amp;Co",
+		},
+		{
+			name: "Username with special characters",
+			user: &models.User{
+				Username: "user<>&\"",
+			},
+			expected: "@user&lt;&gt;&amp;&#34;",
+		},
+		{
+			name: "Empty names",
+			user: &models.User{
+				ID: 123,
+			},
+			expected: "🆔 ID: 123",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			details := &services.UserDetails{
+				User: tt.user,
+			}
+
+			formatted := FormatUserDetails(&AdminHandler{}, details)
+
+			// Check that the expected escaped content is present
+			if !strings.Contains(formatted, tt.expected) {
+				t.Errorf("Expected formatted output to contain %q, but got: %s", tt.expected, formatted)
+			}
+
+			// Verify HTML escaping was applied correctly
+			if strings.Contains(formatted, "<script>") {
+				t.Error("HTML tags should be escaped")
+			}
+			if strings.Contains(formatted, "&Co") && !strings.Contains(formatted, "&amp;Co") {
+				t.Error("Ampersands should be escaped")
+			}
+		})
+	}
+}
+
+func TestAchievementNameFormatting(t *testing.T) {
+	tests := []struct {
+		name         string
+		achievements []*services.UserAchievementInfo
+		expected     []string
+	}{
+		{
+			name: "Normal achievement names",
+			achievements: []*services.UserAchievementInfo{
+				{Name: "Beginner", Category: models.CategoryProgress},
+				{Name: "Expert", Category: models.CategoryCompletion},
+			},
+			expected: []string{"Beginner", "Expert"},
+		},
+		{
+			name: "Achievement names with HTML characters",
+			achievements: []*services.UserAchievementInfo{
+				{Name: "Master<>&\"", Category: models.CategorySpecial},
+				{Name: "Pro & Elite", Category: models.CategoryProgress},
+			},
+			expected: []string{"Master&lt;&gt;&amp;&#34;", "Pro &amp; Elite"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			user := &models.User{
+				ID:        123,
+				FirstName: "Test",
+				LastName:  "User",
+			}
+
+			details := &services.UserDetails{
+				User:             user,
+				AchievementCount: len(tt.achievements),
+				Achievements:     tt.achievements,
+			}
+
+			formatted := FormatUserDetails(&AdminHandler{}, details)
+
+			// Check that all expected escaped achievement names are present
+			for _, expected := range tt.expected {
+				if !strings.Contains(formatted, expected) {
+					t.Errorf("Expected formatted output to contain achievement %q, but got: %s", expected, formatted)
+				}
+			}
+
+			// Verify HTML escaping was applied
+			if strings.Contains(formatted, "<>&\"") {
+				t.Error("HTML special characters should be escaped in achievement names")
+			}
+		})
+	}
+}
+
+func TestStatisticsDisplayFormatting(t *testing.T) {
+	tests := []struct {
+		name     string
+		stats    *services.UserStatistics
+		expected []string
+	}{
+		{
+			name: "Basic statistics formatting",
+			stats: &services.UserStatistics{
+				TotalAnswers:        10,
+				ApprovedSteps:       8,
+				Accuracy:            80,
+				LeaderboardPosition: 1,
+				TotalUsers:          100,
+			},
+			expected: []string{
+				"<b>Статистика прохождения</b>",
+				"<b>Темп</b>",
+				"<b>Рейтинг</b>",
+				"<b>Участие</b>",
+				"🥇 1 из 100",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			formatted := services.FormatUserStatistics(tt.stats, false)
+
+			// Check that HTML formatting is used instead of markdown
+			for _, expected := range tt.expected {
+				if !strings.Contains(formatted, expected) {
+					t.Errorf("Expected formatted output to contain %q, but got: %s", expected, formatted)
+				}
+			}
+
+			// Verify no markdown formatting is present
+			if strings.Contains(formatted, "*Статистика прохождения*") {
+				t.Error("Should use HTML <b> tags instead of markdown *")
+			}
+			if strings.Contains(formatted, "\\(") || strings.Contains(formatted, "\\)") {
+				t.Error("Should not escape parentheses for HTML mode")
+			}
+		})
+	}
+}
+
+func TestFormatUserAchievementsHTMLFormatting(t *testing.T) {
+	user := &models.User{
+		ID:        123,
+		FirstName: "Test<script>",
+		LastName:  "User&Co",
+	}
+
+	summary := &services.UserAchievementSummary{
+		TotalCount: 2,
+		AchievementsByCategory: map[models.AchievementCategory][]*services.UserAchievementDetails{
+			models.CategoryProgress: {
+				{
+					Achievement: &models.Achievement{
+						Name:     "Beginner<>&\"",
+						Category: models.CategoryProgress,
+					},
+					EarnedAt: "01.01.2024 12:00",
+				},
+			},
+		},
+	}
+
+	// Test the standalone function
+	formatted := FormatUserAchievements(user, summary)
+
+	// Check HTML escaping of user name
+	if !strings.Contains(formatted, "Test&lt;script&gt; User&amp;Co") {
+		t.Error("User display name should be HTML escaped")
+	}
+
+	// Check that achievement names are escaped
+	if !strings.Contains(formatted, "Beginner&lt;&gt;&amp;&#34;") {
+		t.Error("Achievement names should be HTML escaped")
+	}
+
+	// Verify no markdown formatting
+	if strings.Contains(formatted, "*Достижения пользователя*") {
+		t.Error("Should use HTML formatting instead of markdown")
+	}
+}
+
+func TestFormatAchievementStatisticsHTMLFormatting(t *testing.T) {
+	stats := &services.AchievementStatistics{
+		TotalAchievements:     10,
+		TotalUserAchievements: 50,
+		TotalUsers:            25,
+		AchievementsByCategory: map[models.AchievementCategory]int{
+			models.CategoryProgress: 5,
+			models.CategorySpecial:  3,
+		},
+		PopularAchievements: []services.AchievementPopularity{
+			{
+				Achievement: &models.Achievement{
+					Name: "Popular<>&\"",
+				},
+				UserCount:  10,
+				Percentage: 40.0,
+			},
+		},
+	}
+
+	formatted := FormatAchievementStatistics(stats)
+
+	// Check HTML formatting is used
+	if !strings.Contains(formatted, "<b>Статистика достижений</b>") {
+		t.Error("Should use HTML <b> tags for headers")
+	}
+
+	if !strings.Contains(formatted, "<b>Общая информация</b>") {
+		t.Error("Should use HTML <b> tags for section headers")
+	}
+
+	// Check achievement names are escaped
+	if !strings.Contains(formatted, "Popular&lt;&gt;&amp;&#34;") {
+		t.Error("Achievement names should be HTML escaped")
+	}
+
+	// Verify no markdown formatting
+	if strings.Contains(formatted, "*Статистика достижений*") {
+		t.Error("Should use HTML formatting instead of markdown")
+	}
+}
+
+func TestFormatAchievementLeadersHTMLFormatting(t *testing.T) {
+	rankings := []services.UserAchievementRanking{
+		{
+			User: &models.User{
+				ID:        1,
+				FirstName: "Leader<script>",
+				LastName:  "User&Co",
+			},
+			AchievementCount: 15,
+		},
+		{
+			User: &models.User{
+				ID:        2,
+				FirstName: "Second",
+				Username:  "user<>&\"",
+			},
+			AchievementCount: 10,
+		},
+	}
+
+	formatted := FormatAchievementLeaders(rankings)
+
+	// Check user names are HTML escaped
+	if !strings.Contains(formatted, "Leader&lt;script&gt; User&amp;Co") {
+		t.Error("User display names should be HTML escaped")
+	}
+
+	if !strings.Contains(formatted, "Second") {
+		t.Error("Should contain second user's name")
+	}
+
+	// Check medals are present
+	if !strings.Contains(formatted, "🥇") {
+		t.Error("Should contain gold medal for first place")
+	}
+
+	if !strings.Contains(formatted, "🥈") {
+		t.Error("Should contain silver medal for second place")
+	}
 }

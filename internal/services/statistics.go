@@ -492,7 +492,7 @@ func (s *StatisticsService) FormatCompletionStats(userID int64) string {
 		return ""
 	}
 
-	return "\n📊 Ваши результаты:\n" + strings.Join(lines, "\n") + "\n"
+	return "\n📊 <b>Ваши результаты</b>\n" + strings.Join(lines, "\n") + "\n"
 }
 
 func (s *StatisticsService) getUserDetailedAnswerStats(userID int64) (int, int, *time.Time, *time.Time, error) {
