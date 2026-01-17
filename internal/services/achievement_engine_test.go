@@ -2215,7 +2215,7 @@ func TestManualAchievementNotificationFlow(t *testing.T) {
 	if !strings.Contains(notification, "🎉") {
 		t.Error("Manual achievement notification should contain celebration emoji")
 	}
-	if !strings.Contains(notification, "Поздравляем") {
+	if !strings.Contains(notification, "Вы получили достижение:") {
 		t.Error("Manual achievement notification should contain congratulatory text")
 	}
 	if !strings.Contains(notification, achievement.Name) {
@@ -2472,7 +2472,7 @@ func TestProperty8_ServiceIntegrationConsistency(t *testing.T) {
 		if !strings.Contains(notification, "🎉") {
 			rt.Errorf("Manual achievement notification should contain celebration emoji")
 		}
-		if !strings.Contains(notification, "Поздравляем") {
+		if !strings.Contains(notification, "Вы получили достижение:") {
 			rt.Errorf("Manual achievement notification should contain congratulatory text")
 		}
 		if !strings.Contains(notification, achievement.Name) {
@@ -2749,7 +2749,7 @@ func TestProperty9_BackwardCompatibilityPreservation(t *testing.T) {
 				if !strings.Contains(automaticNotification, "🎉") {
 					rt.Errorf("Automatic achievement notification should still contain celebration emoji")
 				}
-				if !strings.Contains(automaticNotification, "Поздравляем") {
+				if !strings.Contains(automaticNotification, "Вы получили достижение:") {
 					rt.Errorf("Automatic achievement notification should still contain congratulatory text")
 				}
 			}
@@ -2764,7 +2764,7 @@ func TestProperty9_BackwardCompatibilityPreservation(t *testing.T) {
 				if !strings.Contains(manualNotification, "🎉") {
 					rt.Errorf("Manual achievement notification should contain celebration emoji")
 				}
-				if !strings.Contains(manualNotification, "Поздравляем") {
+				if !strings.Contains(manualNotification, "Вы получили достижение:") {
 					rt.Errorf("Manual achievement notification should contain congratulatory text")
 				}
 			}

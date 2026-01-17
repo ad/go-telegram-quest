@@ -87,7 +87,7 @@ func TestProperty13_AchievementNotificationDelivery(t *testing.T) {
 				rt.Errorf("Notification should contain congratulatory emoji 🎉")
 			}
 
-			if !strings.Contains(notification, "Поздравляем") {
+			if !strings.Contains(notification, "Вы получили достижение:") {
 				rt.Errorf("Notification should contain congratulatory text")
 			}
 
@@ -186,7 +186,7 @@ func TestProperty9_ContentPreservation(t *testing.T) {
 			rt.Errorf("Notification should preserve congratulatory emoji")
 		}
 
-		if !strings.Contains(notification, "Поздравляем") {
+		if !strings.Contains(notification, "Вы получили достижение:") {
 			rt.Errorf("Notification should preserve congratulatory text")
 		}
 
@@ -301,7 +301,7 @@ func TestAchievementNotifier_FormatNotification(t *testing.T) {
 		t.Error("Notification should contain celebration emoji")
 	}
 
-	if !strings.Contains(notification, "Поздравляем") {
+	if !strings.Contains(notification, "Вы получили достижение:") {
 		t.Error("Notification should contain congratulatory text")
 	}
 
