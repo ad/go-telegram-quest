@@ -2107,7 +2107,7 @@ func (h *AdminHandler) exportSteps(ctx context.Context, chatID int64, messageID 
 		}
 	}
 
-	const maxMessageLength = 4000
+	const maxMessageLength = 6000
 	var currentMessage strings.Builder
 
 	for i, step := range steps {
@@ -2115,8 +2115,9 @@ func (h *AdminHandler) exportSteps(ctx context.Context, chatID int64, messageID 
 
 		if currentMessage.Len()+len(stepText) > maxMessageLength && currentMessage.Len() > 0 {
 			h.bot.SendMessage(ctx, &bot.SendMessageParams{
-				ChatID: chatID,
-				Text:   currentMessage.String(),
+				ChatID:    chatID,
+				Text:      currentMessage.String(),
+				ParseMode: tgmodels.ParseModeHTML,
 			})
 			currentMessage.Reset()
 		}
@@ -2139,39 +2140,41 @@ func (h *AdminHandler) exportSteps(ctx context.Context, chatID int64, messageID 
 			ChatID:      chatID,
 			Text:        currentMessage.String(),
 			ReplyMarkup: keyboard,
+			ParseMode:   tgmodels.ParseModeHTML,
 		})
-	} else {
+	} /* else {
 		h.bot.SendMessage(ctx, &bot.SendMessageParams{
 			ChatID:      chatID,
-			Text:        "✅ Экспорт завершен",
+			Text:        "✅ <b>Экспорт завершен</b>",
 			ReplyMarkup: keyboard,
+			ParseMode:   tgmodels.ParseModeHTML,
 		})
-	}
+	}*/
 }
 
 func (h *AdminHandler) formatStepForExport(step *models.Step) string {
 	var stepData strings.Builder
 	stepText := step.Text
 	if step.IsAsterisk {
-		stepText = "* " + stepText
+		stepText = "⭐ " + stepText
 	}
-	stepData.WriteString(stepText + "\n")
-
-	if len(step.Answers) > 0 {
-		stepData.WriteString("Ответы:\n")
-		for i, answer := range step.Answers {
-			stepData.WriteString(fmt.Sprintf("   %d. %s\n", i+1, answer))
-		}
-	}
+	stepData.WriteString("<b>" + stepText + "</b>\n")
 
 	if step.HasHint() {
-		stepData.WriteString("Подсказка: ")
+		stepData.WriteString("<b>Подсказка:</b> ")
 		if step.HintText != "" {
-			stepData.WriteString(step.HintText + "\n")
+			stepData.WriteString("<i>" + strings.ReplaceAll(step.HintText, "\n", " ") + "</i>\n")
 		} else {
-			stepData.WriteString("изображение\n")
+			stepData.WriteString("🖼️ <i>изображение</i>\n")
 		}
 	}
+
+	if len(step.Answers) > 0 {
+		stepData.WriteString("<b>Ответы:</b> ")
+		stepData.WriteString(strings.Join(step.Answers, ", ") + "\n")
+	}
+
+	stepData.WriteString("\n")
 
 	return stepData.String()
 }
