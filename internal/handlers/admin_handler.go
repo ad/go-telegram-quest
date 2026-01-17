@@ -2367,7 +2367,7 @@ func (h *AdminHandler) showAchievementStatistics(ctx context.Context, chatID int
 		return
 	}
 
-	text := FormatAchievementStatistics(stats)
+	text := h.FormatAchievementStatistics(stats)
 
 	keyboard := &tgmodels.InlineKeyboardMarkup{
 		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
@@ -2379,12 +2379,11 @@ func (h *AdminHandler) showAchievementStatistics(ctx context.Context, chatID int
 	h.editOrSend(ctx, chatID, messageID, text, keyboard)
 }
 
-func FormatAchievementStatistics(stats *services.AchievementStatistics) string {
+func (h *AdminHandler) FormatAchievementStatistics(stats *services.AchievementStatistics) string {
 	var sb strings.Builder
 	sb.WriteString("🏆 <b>Статистика достижений</b>\n\n")
 
 	sb.WriteString("📊 <b>Общая информация</b>\n")
-	sb.WriteString(fmt.Sprintf("• Всего достижений: %d\n", stats.TotalAchievements))
 	sb.WriteString(fmt.Sprintf("• Выдано достижений: %d\n", stats.TotalUserAchievements))
 	sb.WriteString(fmt.Sprintf("• Участников: %d\n\n", stats.TotalUsers))
 
@@ -2405,26 +2404,28 @@ func FormatAchievementStatistics(stats *services.AchievementStatistics) string {
 	sb.WriteString("\n")
 
 	if len(stats.PopularAchievements) > 0 {
-		sb.WriteString("🔥 <b>Популярные достижения</b>\n")
-		displayCount := 10
-		if len(stats.PopularAchievements) < displayCount {
-			displayCount = len(stats.PopularAchievements)
+		sb.WriteString(fmt.Sprintf("🏆 <b>Все достижения</b> (%d)\n", stats.TotalAchievements))
+
+		// Get achievement notifier to access emoji mapping
+		var achievementNotifier *services.AchievementNotifier
+		if h.achievementNotifier != nil {
+			achievementNotifier = h.achievementNotifier
 		}
 
-		for i := 0; i < displayCount; i++ {
-			pop := stats.PopularAchievements[i]
-			if pop.UserCount > 0 {
-				sb.WriteString(
-					html.EscapeString(
-						fmt.Sprintf(
-							"• %s: %d (%.1f%%)\n",
-							pop.Achievement.Name,
-							pop.UserCount,
-							pop.Percentage,
-						),
-					),
-				)
+		for _, pop := range stats.PopularAchievements {
+			emoji := "🏅" // default emoji
+			if achievementNotifier != nil {
+				emoji = achievementNotifier.GetAchievementEmoji(pop.Achievement)
 			}
+
+			sb.WriteString(
+				fmt.Sprintf(
+					"%s <b>%s</b> (%d)\n",
+					emoji,
+					html.EscapeString(pop.Achievement.Name),
+					pop.UserCount,
+				),
+			)
 		}
 	}
 
@@ -2456,7 +2457,7 @@ func (h *AdminHandler) showAchievementLeaders(ctx context.Context, chatID int64,
 
 func FormatAchievementLeaders(rankings []services.UserAchievementRanking) string {
 	var sb strings.Builder
-	sb.WriteString("🏅 Лидеры по достижениям\n\n")
+	sb.WriteString("🏅 <b>Лидеры по достижениям</b>\n\n")
 
 	if len(rankings) == 0 {
 		sb.WriteString("Пока нет пользователей с достижениями")
@@ -2476,14 +2477,20 @@ func FormatAchievementLeaders(rankings []services.UserAchievementRanking) string
 			medal = fmt.Sprintf("%d. ", i+1)
 		}
 
-		sb.WriteString(fmt.Sprintf("%s%s: %d достижений\n",
-			medal, html.EscapeString(ranking.User.DisplayName()), ranking.AchievementCount))
+		sb.WriteString(
+			fmt.Sprintf(
+				"%s%s: %d\n",
+				medal,
+				html.EscapeString(ranking.User.DisplayName()),
+				ranking.AchievementCount,
+			),
+		)
 	}
 
 	return sb.String()
 }
 func (h *AdminHandler) createBackup(ctx context.Context, chatID int64, messageID int) {
-	h.editOrSend(ctx, chatID, messageID, "💾 Создаю бэкап базы данных...", nil)
+	h.editOrSend(ctx, chatID, messageID, "💾 <i>Создаю бэкап базы данных...</i>", nil)
 
 	log.Printf("[BACKUP] Starting backup for database: %s", h.dbPath)
 

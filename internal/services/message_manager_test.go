@@ -14,13 +14,13 @@ import (
 
 func TestProperty1_HTMLParseModeUsage(t *testing.T) {
 	rapid.Check(t, func(rt *rapid.T) {
-		chatID := int64(rapid.IntRange(1, 1000000).Draw(rt, "chatID"))
+		// chatID := int64(rapid.IntRange(1, 1000000).Draw(rt, "chatID"))
 		text := rapid.StringMatching(`[a-zA-Z0-9 ]{1,100}`).Draw(rt, "text")
 
 		// Test SendWithRetry sets HTML ParseMode when empty
 		params := &bot.SendMessageParams{
-			ChatID: chatID,
-			Text:   text,
+			// ChatID: chatID,
+			// Text:   text,
 		}
 
 		// Simulate the ParseMode setting logic from SendWithRetry
@@ -34,8 +34,8 @@ func TestProperty1_HTMLParseModeUsage(t *testing.T) {
 
 		// Test SendPhotoWithRetry sets HTML ParseMode when empty and caption exists
 		photoParams := &bot.SendPhotoParams{
-			ChatID:  chatID,
-			Photo:   &tgmodels.InputFileString{Data: "test_file_id"},
+			// ChatID:  chatID,
+			// Photo:   &tgmodels.InputFileString{Data: "test_file_id"},
 			Caption: text,
 		}
 
@@ -50,7 +50,7 @@ func TestProperty1_HTMLParseModeUsage(t *testing.T) {
 
 		// Test SendMediaGroupWithRetry sets HTML ParseMode for media with captions
 		media := &tgmodels.InputMediaPhoto{
-			Media:   "test_file_id",
+			// Media:   "test_file_id",
 			Caption: text,
 		}
 
