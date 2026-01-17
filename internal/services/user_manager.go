@@ -158,12 +158,13 @@ func (m *UserManager) GetUserDetails(userID int64) (*UserDetails, error) {
 		return nil, err
 	}
 
-	approvedSteps := make(map[int64]bool)
+	completedSteps := make(map[int64]bool)
 	progressByStep := make(map[int64]*models.UserProgress)
 	for _, p := range userProgress {
 		progressByStep[p.StepID] = p
-		if p.Status == models.StatusApproved {
-			approvedSteps[p.StepID] = true
+		// Шаг считается завершенным если он одобрен или пропущен (для шагов со звездочкой)
+		if p.Status == models.StatusApproved || p.Status == models.StatusSkipped {
+			completedSteps[p.StepID] = true
 		}
 	}
 
@@ -172,16 +173,36 @@ func (m *UserManager) GetUserDetails(userID int64) (*UserDetails, error) {
 	isCompleted := true
 
 	for _, step := range activeSteps {
-		if approvedSteps[step.ID] {
+		if completedSteps[step.ID] {
 			continue
 		}
 
-		currentStep = step
-		isCompleted = false
-		if progress, exists := progressByStep[step.ID]; exists {
-			status = progress.Status
+		// Для обычных шагов (без звездочки) требуется прохождение
+		// Для шагов со звездочкой можно пропустить
+		if !step.IsAsterisk {
+			currentStep = step
+			isCompleted = false
+			if progress, exists := progressByStep[step.ID]; exists {
+				status = progress.Status
+			}
+			break
+		} else {
+			// Шаг со звездочкой не пройден и не пропущен
+			if progress, exists := progressByStep[step.ID]; exists {
+				if progress.Status != models.StatusApproved && progress.Status != models.StatusSkipped {
+					currentStep = step
+					isCompleted = false
+					status = progress.Status
+					break
+				}
+			} else {
+				// Шаг со звездочкой еще не начат
+				currentStep = step
+				isCompleted = false
+				status = models.StatusPending
+				break
+			}
 		}
-		break
 	}
 
 	// Calculate statistics with current step information
@@ -359,10 +380,13 @@ func (m *UserManager) GetQuestStatistics() (*QuestStatistics, error) {
 			return nil, err
 		}
 
-		approvedSteps := make(map[int64]bool)
+		completedSteps := make(map[int64]bool)
+		progressByStep := make(map[int64]*models.UserProgress)
 		for _, p := range userProgress {
-			if p.Status == models.StatusApproved {
-				approvedSteps[p.StepID] = true
+			progressByStep[p.StepID] = p
+			// Шаг считается завершенным если он одобрен или пропущен (для шагов со звездочкой)
+			if p.Status == models.StatusApproved || p.Status == models.StatusSkipped {
+				completedSteps[p.StepID] = true
 			}
 		}
 
@@ -370,10 +394,30 @@ func (m *UserManager) GetQuestStatistics() (*QuestStatistics, error) {
 		currentStepOrder := 0
 		isCompleted := true
 		for _, step := range activeSteps {
-			if !approvedSteps[step.ID] {
+			if completedSteps[step.ID] {
+				continue
+			}
+
+			// Для обычных шагов (без звездочки) требуется прохождение
+			// Для шагов со звездочкой можно пропустить
+			if !step.IsAsterisk {
 				currentStepOrder = step.StepOrder
 				isCompleted = false
 				break
+			} else {
+				// Шаг со звездочкой не пройден и не пропущен
+				if progress, exists := progressByStep[step.ID]; exists {
+					if progress.Status != models.StatusApproved && progress.Status != models.StatusSkipped {
+						currentStepOrder = step.StepOrder
+						isCompleted = false
+						break
+					}
+				} else {
+					// Шаг со звездочкой еще не начат
+					currentStepOrder = step.StepOrder
+					isCompleted = false
+					break
+				}
 			}
 		}
 

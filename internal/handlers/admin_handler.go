@@ -1313,7 +1313,9 @@ func FormatUserDetails(h *AdminHandler, details *services.UserDetails) string {
 			models.StatusApproved:      "✅ Одобрен",
 			models.StatusRejected:      "❌ Отклонён",
 		}[details.Status]
-		fmt.Fprintf(&sb, "📋 Статус: %s\n", statusText)
+		if statusText != "" {
+			fmt.Fprintf(&sb, "📋 Статус: %s\n", statusText)
+		}
 	} else {
 		sb.WriteString("📊 Прогресс: Не начат\n")
 	}
