@@ -763,9 +763,10 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 	}
 
 	h.sendToAdminForReview(ctx, userID, step, "", []string{fileID})
-	h.msgManager.SendReaction(ctx, userID, "⏳ Ваше фото отправлено на проверку, подождите пока его проверят\\.")
 
 	h.evaluateAchievementsOnPhotoSubmitted(ctx, userID, false, msg, step)
+
+	h.msgManager.SendReaction(ctx, userID, "⏳ <b>Ваше фото отправлено на проверку, подождите пока его проверят...</b>")
 }
 
 func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels.CallbackQuery) {
