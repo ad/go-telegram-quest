@@ -13,4 +13,5 @@ type AdminState struct {
 	ReplacingImageID int64
 	NewHintText      string
 	TargetUserID     int64
+	NewGroupChatID   int64
 }

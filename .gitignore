@@ -34,3 +34,4 @@ go.work.sum
 .cursor/
 .kiro/
 /bot
+quest.db

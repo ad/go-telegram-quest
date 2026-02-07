@@ -5,4 +5,6 @@ type Settings struct {
 	FinalMessage         string
 	CorrectAnswerMessage string
 	WrongAnswerMessage   string
+	RequiredGroupChatID  int64
+	GroupChatInviteLink  string
 }

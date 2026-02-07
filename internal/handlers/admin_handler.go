@@ -123,6 +123,16 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.showUserList(ctx, chatID, messageID, 1)
 	case data == "admin:settings":
 		h.showSettingsMenu(ctx, chatID, messageID)
+	case data == "admin:group_restriction":
+		h.showGroupRestrictionMenu(ctx, chatID, messageID)
+	case data == "admin:enable_group_restriction":
+		h.startEnableGroupRestriction(ctx, chatID, messageID)
+	case data == "admin:disable_group_restriction":
+		h.startDisableGroupRestriction(ctx, chatID, messageID)
+	case data == "admin:edit_group_id":
+		h.startEditGroupID(ctx, chatID, messageID)
+	case data == "admin:edit_group_link":
+		h.startEditGroupLink(ctx, chatID, messageID)
 	case data == "admin:quest_state":
 		h.showQuestStateMenu(ctx, chatID, messageID)
 	case data == "admin:export_steps":
@@ -619,6 +629,7 @@ func (h *AdminHandler) showSettingsMenu(ctx context.Context, chatID int64, messa
 
 	buttons := [][]tgmodels.InlineKeyboardButton{
 		{{Text: "🎮 Состояние квеста", CallbackData: "admin:quest_state"}},
+		{{Text: "🔐 Ограничение участия", CallbackData: "admin:group_restriction"}},
 		{{Text: "👋 Приветствие", CallbackData: "admin:edit_setting:welcome_message"}},
 		{{Text: "🏁 Финальное", CallbackData: "admin:edit_setting:final_message"}},
 		{{Text: "✅ Правильный ответ", CallbackData: "admin:edit_setting:correct_answer_message"}},
@@ -627,6 +638,278 @@ func (h *AdminHandler) showSettingsMenu(ctx context.Context, chatID int64, messa
 	}
 
 	h.editOrSend(ctx, chatID, messageID, html.EscapeString(sb.String()), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
+}
+
+func (h *AdminHandler) showGroupRestrictionMenu(ctx context.Context, chatID int64, messageID int) {
+	groupChatID, err := h.settingsRepo.GetRequiredGroupChatID()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при получении настроек", nil)
+		return
+	}
+
+	inviteLink, err := h.settingsRepo.GetGroupChatInviteLink()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при получении настроек", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("🔐 Ограничение участия\n\n")
+
+	var buttons [][]tgmodels.InlineKeyboardButton
+
+	if groupChatID == 0 {
+		sb.WriteString("❌ Ограничение участия отключено")
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "✅ Включить ограничение", CallbackData: "admin:enable_group_restriction"},
+		})
+	} else {
+		sb.WriteString("✅ Ограничение участия включено\n\n")
+		sb.WriteString(fmt.Sprintf("🔐 ID группы: %d\n", groupChatID))
+		sb.WriteString(fmt.Sprintf("🔗 Ссылка: %s", truncateText(inviteLink, 50)))
+
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "✏️ Изменить ID группы", CallbackData: "admin:edit_group_id"},
+		})
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "✏️ Изменить ссылку", CallbackData: "admin:edit_group_link"},
+		})
+		buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+			{Text: "❌ Выключить ограничение", CallbackData: "admin:disable_group_restriction"},
+		})
+	}
+
+	buttons = append(buttons, []tgmodels.InlineKeyboardButton{
+		{Text: "⬅️ Назад", CallbackData: "admin:settings"},
+	})
+
+	h.editOrSend(ctx, chatID, messageID, html.EscapeString(sb.String()), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: buttons})
+}
+
+func (h *AdminHandler) startEnableGroupRestriction(ctx context.Context, chatID int64, messageID int) {
+	state := &models.AdminState{
+		UserID:       h.adminID,
+		CurrentState: fsm.StateAdminEnableGroupRestrictionID,
+	}
+	h.adminStateRepo.Save(state)
+
+	h.editOrSend(ctx, chatID, messageID, "📝 Введите ID группы (например: -1001234567890):\n\n/cancel - отмена", nil)
+}
+
+func (h *AdminHandler) startDisableGroupRestriction(ctx context.Context, chatID int64, messageID int) {
+	if err := h.settingsRepo.SetRequiredGroupChatID(0); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при отключении ограничения", nil)
+		return
+	}
+
+	if err := h.settingsRepo.SetGroupChatInviteLink(""); err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при отключении ограничения", nil)
+		return
+	}
+
+	h.editOrSend(ctx, chatID, messageID, "✅ Ограничение участия отключено", nil)
+	h.showGroupRestrictionMenu(ctx, chatID, 0)
+}
+
+func (h *AdminHandler) startEditGroupID(ctx context.Context, chatID int64, messageID int) {
+	groupChatID, err := h.settingsRepo.GetRequiredGroupChatID()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при получении настроек", nil)
+		return
+	}
+
+	state := &models.AdminState{
+		UserID:       h.adminID,
+		CurrentState: fsm.StateAdminEditGroupID,
+	}
+	h.adminStateRepo.Save(state)
+
+	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("📝 Введите новый ID группы:\n\nТекущее значение: %d\n\n/cancel - отмена", groupChatID), nil)
+}
+
+func (h *AdminHandler) startEditGroupLink(ctx context.Context, chatID int64, messageID int) {
+	inviteLink, err := h.settingsRepo.GetGroupChatInviteLink()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Ошибка при получении настроек", nil)
+		return
+	}
+
+	state := &models.AdminState{
+		UserID:       h.adminID,
+		CurrentState: fsm.StateAdminEditGroupLink,
+	}
+	h.adminStateRepo.Save(state)
+
+	h.editOrSend(ctx, chatID, messageID, fmt.Sprintf("📝 Введите новую ссылку на группу:\n\nТекущее значение:\n%s\n\n/cancel - отмена", inviteLink), nil)
+}
+
+func (h *AdminHandler) handleEnableGroupRestrictionID(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if msg.Text == "" {
+		return false
+	}
+
+	var groupChatID int64
+	if _, err := fmt.Sscanf(msg.Text, "%d", &groupChatID); err != nil {
+		log.Printf("[ADMIN] Failed to parse group chat ID: %v", err)
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Неверный формат ID. Введите число (например: -1001234567890)",
+		})
+		return true
+	}
+
+	if groupChatID >= 0 {
+		log.Printf("[ADMIN] Group chat ID must be negative, got: %d", groupChatID)
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ ID группы должен быть отрицательным числом",
+		})
+		return true
+	}
+
+	log.Printf("[ADMIN] Setting NewGroupChatID to: %d", groupChatID)
+	state.NewGroupChatID = groupChatID
+	state.CurrentState = fsm.StateAdminEnableGroupRestrictionLink
+	h.adminStateRepo.Save(state)
+
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "📝 Введите ссылку на группу (например: https://t.me/+AbCdEfGhIjKlMnOp):\n\n/cancel - отмена",
+	})
+	return true
+}
+
+func (h *AdminHandler) handleEnableGroupRestrictionLink(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if msg.Text == "" {
+		return false
+	}
+
+	inviteLink := strings.TrimSpace(msg.Text)
+	if inviteLink == "" {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ссылка не может быть пустой",
+		})
+		return true
+	}
+
+	if !strings.HasPrefix(inviteLink, "https://t.me/") {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ссылка должна начинаться с https://t.me/",
+		})
+		return true
+	}
+
+	log.Printf("[ADMIN] Saving group chat ID: %d", state.NewGroupChatID)
+	if err := h.settingsRepo.SetRequiredGroupChatID(state.NewGroupChatID); err != nil {
+		log.Printf("[ADMIN] Failed to save group chat ID: %v", err)
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при сохранении ID группы",
+		})
+		return true
+	}
+
+	log.Printf("[ADMIN] Saving invite link: %s", inviteLink)
+	if err := h.settingsRepo.SetGroupChatInviteLink(inviteLink); err != nil {
+		log.Printf("[ADMIN] Failed to save invite link: %v", err)
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при сохранении ссылки",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	log.Printf("[ADMIN] Group restriction enabled successfully")
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ Ограничение участия включено",
+	})
+	h.showGroupRestrictionMenu(ctx, msg.Chat.ID, 0)
+	return true
+}
+
+func (h *AdminHandler) handleEditGroupID(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if msg.Text == "" {
+		return false
+	}
+
+	var groupChatID int64
+	if _, err := fmt.Sscanf(msg.Text, "%d", &groupChatID); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Неверный формат ID. Введите число (например: -1001234567890)",
+		})
+		return true
+	}
+
+	if groupChatID >= 0 {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ ID группы должен быть отрицательным числом",
+		})
+		return true
+	}
+
+	if err := h.settingsRepo.SetRequiredGroupChatID(groupChatID); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при сохранении ID группы",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ ID группы обновлён",
+	})
+	h.showGroupRestrictionMenu(ctx, msg.Chat.ID, 0)
+	return true
+}
+
+func (h *AdminHandler) handleEditGroupLink(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if msg.Text == "" {
+		return false
+	}
+
+	inviteLink := strings.TrimSpace(msg.Text)
+	if inviteLink == "" {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ссылка не может быть пустой",
+		})
+		return true
+	}
+
+	if !strings.HasPrefix(inviteLink, "https://t.me/") {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ссылка должна начинаться с https://t.me/",
+		})
+		return true
+	}
+
+	if err := h.settingsRepo.SetGroupChatInviteLink(inviteLink); err != nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Ошибка при сохранении ссылки",
+		})
+		return true
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	h.bot.SendMessage(ctx, &bot.SendMessageParams{
+		ChatID: msg.Chat.ID,
+		Text:   "✅ Ссылка на группу обновлена",
+	})
+	h.showGroupRestrictionMenu(ctx, msg.Chat.ID, 0)
+	return true
 }
 
 func (h *AdminHandler) startEditSetting(ctx context.Context, chatID int64, messageID int, data string) {
@@ -699,6 +982,14 @@ func (h *AdminHandler) handleStateInput(ctx context.Context, msg *tgmodels.Messa
 		return h.handleEditHintImage(ctx, msg, state)
 	case fsm.StateAdminSendMessage:
 		return h.handleSendMessage(ctx, msg, state)
+	case fsm.StateAdminEnableGroupRestrictionID:
+		return h.handleEnableGroupRestrictionID(ctx, msg, state)
+	case fsm.StateAdminEnableGroupRestrictionLink:
+		return h.handleEnableGroupRestrictionLink(ctx, msg, state)
+	case fsm.StateAdminEditGroupID:
+		return h.handleEditGroupID(ctx, msg, state)
+	case fsm.StateAdminEditGroupLink:
+		return h.handleEditGroupLink(ctx, msg, state)
 	}
 	return false
 }

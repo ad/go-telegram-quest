@@ -34,6 +34,7 @@ type BotHandler struct {
 	questStateMiddleware *services.QuestStateMiddleware
 	achievementEngine    *services.AchievementEngine
 	achievementNotifier  *services.AchievementNotifier
+	groupChatVerifier    *services.GroupChatVerifier
 }
 
 func NewBotHandler(
@@ -57,6 +58,7 @@ func NewBotHandler(
 	achievementEngine *services.AchievementEngine,
 	achievementNotifier *services.AchievementNotifier,
 	achievementService *services.AchievementService,
+	groupChatVerifier *services.GroupChatVerifier,
 	dbPath string,
 ) *BotHandler {
 	adminHandler := NewAdminHandler(b, adminID, stepRepo, answerRepo, settingsRepo, adminStateRepo, userManager, userRepo, questStateManager, achievementService, achievementEngine, achievementNotifier, statsService, errorManager, dbPath)
@@ -81,6 +83,7 @@ func NewBotHandler(
 		questStateMiddleware: questStateMiddleware,
 		achievementEngine:    achievementEngine,
 		achievementNotifier:  achievementNotifier,
+		groupChatVerifier:    groupChatVerifier,
 	}
 }
 
@@ -102,6 +105,10 @@ func (h *BotHandler) recoverPanic(ctx context.Context, update *tgmodels.Update) 
 
 func (h *BotHandler) handleMessage(ctx context.Context, msg *tgmodels.Message) {
 	if msg.From == nil {
+		return
+	}
+
+	if msg.Chat.Type != tgmodels.ChatTypePrivate {
 		return
 	}
 
@@ -167,7 +174,9 @@ func (h *BotHandler) sendShadowBanResponse(ctx context.Context, chatID int64) {
 }
 
 func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
-	// log.Printf("[HANDLER] handleCallback called with data: %s, from: %d, adminID: %d", callback.Data, callback.From.ID, h.adminID)
+	if callback.Message.Message == nil || callback.Message.Message.Chat.Type != tgmodels.ChatTypePrivate {
+		return
+	}
 
 	if strings.HasPrefix(callback.Data, "next_step:") {
 		h.handleNextStepCallback(ctx, callback)
@@ -181,6 +190,11 @@ func (h *BotHandler) handleCallback(ctx context.Context, callback *tgmodels.Call
 
 	if strings.HasPrefix(callback.Data, "skip_step:") {
 		h.handleSkipStepCallback(ctx, callback)
+		return
+	}
+
+	if strings.HasPrefix(callback.Data, "verify_membership:") {
+		h.handleVerifyMembershipCallback(ctx, callback)
 		return
 	}
 
@@ -215,6 +229,24 @@ func (h *BotHandler) handleStart(ctx context.Context, msg *tgmodels.Message) {
 	if err := h.userRepo.CreateOrUpdate(user); err != nil {
 		h.sendError(ctx, msg.Chat.ID, "Ошибка при регистрации")
 		return
+	}
+
+	if h.groupChatVerifier != nil {
+		enabled, err := h.groupChatVerifier.IsVerificationEnabled()
+		if err != nil {
+			log.Printf("[HANDLER] Error checking if verification is enabled: %v", err)
+		} else if enabled {
+			isMember, inviteLink, err := h.groupChatVerifier.VerifyMembership(ctx, user.ID)
+			if err != nil {
+				log.Printf("[HANDLER] Error verifying membership for user %d: %v", user.ID, err)
+				h.sendVerificationUI(ctx, msg.Chat.ID, user.ID, inviteLink)
+				return
+			}
+			if !isMember {
+				h.sendVerificationUI(ctx, msg.Chat.ID, user.ID, inviteLink)
+				return
+			}
+		}
 	}
 
 	shouldProcess, notification := h.questStateMiddleware.ShouldProcessMessage(user.ID)
@@ -669,6 +701,173 @@ func (h *BotHandler) sendError(ctx context.Context, chatID int64, text string) {
 		ChatID: chatID,
 		Text:   "⚠️ " + text,
 	})
+}
+
+func (h *BotHandler) sendVerificationUI(ctx context.Context, chatID int64, userID int64, inviteLink string) {
+	message := "🔐 <b>Для участия в квесте необходимо быть участником группы</b>\n\n" +
+		"Пожалуйста, присоединитесь и нажмите кнопку \"Проверить\" для продолжения."
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "Присоединиться к чату", URL: inviteLink}},
+			{{Text: "Проверить", CallbackData: fmt.Sprintf("verify_membership:%d", userID)}},
+		},
+	}
+
+	h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+		ChatID:      chatID,
+		Text:        message,
+		ReplyMarkup: keyboard,
+	})
+}
+
+func (h *BotHandler) handleVerifyMembershipCallback(ctx context.Context, callback *tgmodels.CallbackQuery) {
+	parts := strings.Split(callback.Data, ":")
+	if len(parts) != 2 {
+		return
+	}
+
+	userID, _ := parseInt64(parts[1])
+	if userID == 0 {
+		return
+	}
+
+	if h.groupChatVerifier == nil {
+		log.Printf("[HANDLER] GroupChatVerifier is nil")
+		h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: callback.ID,
+			Text:            "⚠️ Ошибка конфигурации",
+		})
+		return
+	}
+
+	isMember, inviteLink, err := h.groupChatVerifier.VerifyMembership(ctx, userID)
+	if err != nil {
+		log.Printf("[HANDLER] Error verifying membership for user %d: %v", userID, err)
+		h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: callback.ID,
+			Text:            "⚠️ Ошибка проверки. Попробуйте позже.",
+		})
+
+		if callback.Message.Message != nil {
+			failedMessage := "🔐 <b>Не удалось проверить членство</b>\n\n" +
+				"Произошла ошибка при проверке. Пожалуйста, попробуйте ещё раз."
+
+			keyboard := &tgmodels.InlineKeyboardMarkup{
+				InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+					{{Text: "Присоединиться к чату", URL: inviteLink}},
+					{{Text: "Проверить", CallbackData: fmt.Sprintf("verify_membership:%d", userID)}},
+				},
+			}
+
+			h.bot.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:      callback.Message.Message.Chat.ID,
+				MessageID:   callback.Message.Message.ID,
+				Text:        failedMessage,
+				ParseMode:   tgmodels.ParseModeHTML,
+				ReplyMarkup: keyboard,
+			})
+		}
+		return
+	}
+
+	if !isMember {
+		h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+			CallbackQueryID: callback.ID,
+			Text:            "❌ Вы ещё не присоединились к группе",
+		})
+
+		if callback.Message.Message != nil {
+			notMemberMessage := "🔐 <b>Вы ещё не являетесь участником группы</b>\n\n" +
+				"Пожалуйста, присоединитесь к группе и нажмите кнопку \"Проверить\" снова."
+
+			keyboard := &tgmodels.InlineKeyboardMarkup{
+				InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+					{{Text: "Присоединиться к чату", URL: inviteLink}},
+					{{Text: "Проверить", CallbackData: fmt.Sprintf("verify_membership:%d", userID)}},
+				},
+			}
+
+			h.bot.EditMessageText(ctx, &bot.EditMessageTextParams{
+				ChatID:      callback.Message.Message.Chat.ID,
+				MessageID:   callback.Message.Message.ID,
+				Text:        notMemberMessage,
+				ParseMode:   tgmodels.ParseModeHTML,
+				ReplyMarkup: keyboard,
+			})
+		}
+		return
+	}
+
+	if callback.Message.Message != nil {
+		h.bot.DeleteMessage(ctx, &bot.DeleteMessageParams{
+			ChatID:    callback.Message.Message.Chat.ID,
+			MessageID: callback.Message.Message.ID,
+		})
+	}
+
+	h.bot.AnswerCallbackQuery(ctx, &bot.AnswerCallbackQueryParams{
+		CallbackQueryID: callback.ID,
+		Text:            "✅ Проверка пройдена!",
+	})
+
+	user, _ := h.userRepo.GetByID(userID)
+	if user == nil {
+		user = &models.User{ID: userID}
+	}
+
+	shouldProcess, notification := h.questStateMiddleware.ShouldProcessMessage(user.ID)
+	if !shouldProcess {
+		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+			ChatID: callback.Message.Message.Chat.ID,
+			Text:   notification,
+		})
+		return
+	}
+
+	state, err := h.stateResolver.ResolveState(user.ID)
+	if err != nil {
+		h.sendError(ctx, callback.Message.Message.Chat.ID, fmt.Sprintf("Ошибка при определении состояния: %v", err))
+		return
+	}
+
+	if state.IsCompleted {
+		settings, _ := h.settingsRepo.GetAll()
+		finalMsg := "Поздравляем! Вы прошли квест!"
+		if settings != nil && settings.FinalMessage != "" {
+			finalMsg = settings.FinalMessage
+		}
+
+		completionStats := h.statsService.FormatCompletionStats(user.ID)
+		if completionStats != "" {
+			finalMsg = finalMsg + "\n\n" + completionStats
+		}
+
+		stickerPackMsg := h.achievementNotifier.FormatStickerPackMessage(user.ID)
+		if stickerPackMsg != "" {
+			finalMsg = finalMsg + "\n\n" + stickerPackMsg
+		}
+
+		h.msgManager.SendWithRetryAndEffect(ctx, &bot.SendMessageParams{
+			ChatID: callback.Message.Message.Chat.ID,
+			Text:   finalMsg,
+		}, "5046509860389126442")
+		return
+	}
+
+	if state.Status == models.StatusPending || state.Status == "" {
+		settings, _ := h.settingsRepo.GetAll()
+		welcomeMsg := "Добро пожаловать в квест!"
+		if settings != nil && settings.WelcomeMessage != "" {
+			welcomeMsg = settings.WelcomeMessage
+		}
+		h.msgManager.SendWithRetry(ctx, &bot.SendMessageParams{
+			ChatID: callback.Message.Message.Chat.ID,
+			Text:   welcomeMsg,
+		})
+	}
+
+	h.sendStep(ctx, user.ID, state.CurrentStep)
 }
 
 func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Message) {

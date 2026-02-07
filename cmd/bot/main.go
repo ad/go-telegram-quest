@@ -16,6 +16,7 @@ import (
 	"github.com/ad/go-telegram-quest/internal/services"
 	"github.com/go-telegram/bot"
 	tgmodels "github.com/go-telegram/bot/models"
+	_ "github.com/joho/godotenv/autoload"
 	_ "modernc.org/sqlite"
 )
 
@@ -110,6 +111,7 @@ func main() {
 	achievementNotifier := services.NewAchievementNotifier(b, achievementRepo, msgManager, stickerService)
 	achievementService := services.NewAchievementService(achievementRepo, userRepo)
 	retroactiveProcessor := services.NewRetroactiveProcessor(achievementEngine, achievementRepo, userRepo)
+	groupChatVerifier := services.NewGroupChatVerifier(b, settingsRepo)
 
 	handler := handlers.NewBotHandler(
 		b,
@@ -132,6 +134,7 @@ func main() {
 		achievementEngine,
 		achievementNotifier,
 		achievementService,
+		groupChatVerifier,
 		dbPath,
 	)
 

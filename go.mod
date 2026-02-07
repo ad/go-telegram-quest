@@ -4,6 +4,7 @@ go 1.25
 
 require (
 	github.com/go-telegram/bot v1.17.0
+	github.com/joho/godotenv v1.5.1
 	modernc.org/sqlite v1.42.2
 	pgregory.net/rapid v1.2.0
 )

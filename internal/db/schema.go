@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
     last_name TEXT,
     username TEXT,
     is_blocked BOOLEAN DEFAULT FALSE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    new_group_chat_id INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS steps (
@@ -99,7 +100,8 @@ CREATE TABLE IF NOT EXISTS admin_state (
     new_step_answers TEXT DEFAULT '[]',
     editing_setting TEXT DEFAULT '',
     new_hint_text TEXT DEFAULT '',
-    target_user_id INTEGER DEFAULT 0
+    target_user_id INTEGER DEFAULT 0,
+    new_group_chat_id INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS achievements (
@@ -148,7 +150,9 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
     ('quest_state', 'not_started'),
     ('quest_not_started_message', 'Квест ещё не начался. Ожидайте объявления о старте!'),
     ('quest_paused_message', 'Квест временно приостановлен. Скоро мы продолжим!'),
-    ('quest_completed_message', 'Квест завершён! Спасибо за участие!');
+    ('quest_completed_message', 'Квест завершён! Спасибо за участие!'),
+    ('required_group_chat_id', '0'),
+    ('group_chat_invite_link', '');
 `
 
 const migrations = `
@@ -163,6 +167,7 @@ ALTER TABLE admin_state ADD COLUMN new_hint_text TEXT DEFAULT '';
 ALTER TABLE admin_state ADD COLUMN target_user_id INTEGER DEFAULT 0;
 ALTER TABLE user_chat_state ADD COLUMN awaiting_next_step BOOLEAN DEFAULT FALSE;
 ALTER TABLE steps ADD COLUMN is_asterisk BOOLEAN DEFAULT FALSE;
+ALTER TABLE admin_state ADD COLUMN new_group_chat_id INTEGER DEFAULT 0;
 `
 
 func InitSchema(db *sql.DB) error {
@@ -176,22 +181,19 @@ func InitSchema(db *sql.DB) error {
 		return err
 	}
 
-	// Split migrations and execute them one by one
 	migrationStatements := strings.Split(migrations, ";")
 	for i, stmt := range migrationStatements {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" {
 			continue
 		}
-		// Ignore errors for migrations as columns might already exist, but log them for debugging
 		if _, err := db.Exec(stmt); err != nil {
-			// log.Printf("Migration %d failed: %s. Error: %v", i, stmt, err)
+			log.Printf("Migration %d failed: %s. Error: %v", i, stmt, err)
 		} else {
 			log.Printf("Migration %d executed: %s", i, stmt)
 		}
 	}
 
-	// Initialize default achievements
 	if err := InitializeDefaultAchievements(db); err != nil {
 		log.Printf("Failed to initialize default achievements: %v", err)
 		return err

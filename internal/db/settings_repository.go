@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"fmt"
 
 	"github.com/ad/go-telegram-quest/internal/models"
 )
@@ -60,6 +61,13 @@ func (r *SettingsRepository) GetAll() (*models.Settings, error) {
 				settings.CorrectAnswerMessage = value
 			case "wrong_answer_message":
 				settings.WrongAnswerMessage = value
+			case "required_group_chat_id":
+				var chatID int64
+				if _, err := fmt.Sscanf(value, "%d", &chatID); err == nil {
+					settings.RequiredGroupChatID = chatID
+				}
+			case "group_chat_invite_link":
+				settings.GroupChatInviteLink = value
 			}
 		}
 		return settings, rows.Err()
@@ -84,4 +92,28 @@ func (r *SettingsRepository) SetCorrectAnswerMessage(value string) error {
 
 func (r *SettingsRepository) SetWrongAnswerMessage(value string) error {
 	return r.Set("wrong_answer_message", value)
+}
+
+func (r *SettingsRepository) GetRequiredGroupChatID() (int64, error) {
+	value, err := r.Get("required_group_chat_id")
+	if err != nil {
+		return 0, err
+	}
+	var chatID int64
+	if _, err := fmt.Sscanf(value, "%d", &chatID); err != nil {
+		return 0, err
+	}
+	return chatID, nil
+}
+
+func (r *SettingsRepository) SetRequiredGroupChatID(chatID int64) error {
+	return r.Set("required_group_chat_id", fmt.Sprintf("%d", chatID))
+}
+
+func (r *SettingsRepository) GetGroupChatInviteLink() (string, error) {
+	return r.Get("group_chat_invite_link")
+}
+
+func (r *SettingsRepository) SetGroupChatInviteLink(link string) error {
+	return r.Set("group_chat_invite_link", link)
 }

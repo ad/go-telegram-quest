@@ -108,6 +108,7 @@ func TestBotHandlerIntegration(t *testing.T) {
 		achievementEngine,
 		achievementNotifier,
 		achievementService,
+		nil,
 		"",
 	)
 
