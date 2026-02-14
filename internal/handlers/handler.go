@@ -518,7 +518,7 @@ func (h *BotHandler) handleTextAnswer(ctx context.Context, msg *tgmodels.Message
 			})
 		}
 		h.sendToAdminForReview(ctx, userID, step, msg.Text, nil)
-		h.msgManager.SendReaction(ctx, userID, "⏳ <b>Ваш ответ отправлен на проверку, подождите пока его проверят.</b>")
+		h.msgManager.SendReaction(ctx, userID, "⏳ <b>Ваш ответ отправлен на проверку, подождите пока его одобрят...</b>")
 	}
 }
 
@@ -965,7 +965,7 @@ func (h *BotHandler) handleImageAnswer(ctx context.Context, msg *tgmodels.Messag
 
 	h.evaluateAchievementsOnPhotoSubmitted(ctx, userID, false, msg, step)
 
-	h.msgManager.SendReaction(ctx, userID, "⏳ <b>Ваше фото отправлено на проверку, подождите пока его проверят...</b>")
+	h.msgManager.SendReaction(ctx, userID, "⏳ <b>Ваше фото отправлено на проверку, подождите пока его одобрят...</b>")
 }
 
 func (h *BotHandler) handleAdminDecision(ctx context.Context, callback *tgmodels.CallbackQuery) {

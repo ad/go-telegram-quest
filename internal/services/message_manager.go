@@ -125,7 +125,7 @@ func (m *MessageManager) SendTaskWithButtons(ctx context.Context, userID int64, 
 	starQuestion := ""
 
 	if showSkipButton {
-		starQuestion = "\n\n<i>Это вопрос с звездочкой, его можно пропустить</i>"
+		starQuestion = "\n\n<i>Это вопрос со звездочкой, его можно пропустить</i>"
 	}
 
 	var keyboard *tgmodels.InlineKeyboardMarkup
