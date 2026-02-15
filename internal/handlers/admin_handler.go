@@ -1601,7 +1601,7 @@ func FormatUserDetails(h *AdminHandler, details *services.UserDetails) string {
 	if details.IsCompleted {
 		sb.WriteString("📊 Прогресс: ✅ Квест завершён\n")
 	} else if details.CurrentStep != nil {
-		fmt.Fprintf(&sb, "📊 Прогресс: Шаг %d\n", details.CurrentStep.StepOrder)
+		fmt.Fprintf(&sb, "📊 Прогресс: Шаг %d\n❓ Вопрос: %s\n", details.CurrentStep.StepOrder, html.EscapeString(details.CurrentStep.Text))
 		statusText := map[models.ProgressStatus]string{
 			models.StatusPending:       "⏳ Ожидает ответа",
 			models.StatusWaitingReview: "🔍 На проверке",

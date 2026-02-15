@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -159,13 +160,24 @@ func main() {
 	b.Start(ctx)
 }
 
+func formatUser(u tgmodels.User) string {
+	name := u.FirstName
+	if u.LastName != "" {
+		name += " " + u.LastName
+	}
+	if u.Username != "" {
+		name += " @" + u.Username
+	}
+	return fmt.Sprintf("%s [%d]", name, u.ID)
+}
+
 func logMiddleware(next bot.HandlerFunc) bot.HandlerFunc {
 	return func(ctx context.Context, b *bot.Bot, update *tgmodels.Update) {
 		if update.Message != nil {
-			log.Printf("[MSG] from=%d text=%q", update.Message.From.ID, update.Message.Text)
+			log.Printf("[MSG] from=%s text=%q", formatUser(*update.Message.From), update.Message.Text)
 		}
 		if update.CallbackQuery != nil {
-			log.Printf("[CALLBACK] from=%d data=%q", update.CallbackQuery.From.ID, update.CallbackQuery.Data)
+			log.Printf("[CALLBACK] from=%s data=%q", formatUser(update.CallbackQuery.From), update.CallbackQuery.Data)
 		}
 		next(ctx, b, update)
 	}
