@@ -14,4 +14,5 @@ type AdminState struct {
 	NewHintText      string
 	TargetUserID     int64
 	NewGroupChatID   int64
+	SendMessageType  string
 }

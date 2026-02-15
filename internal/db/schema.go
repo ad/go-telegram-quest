@@ -101,7 +101,8 @@ CREATE TABLE IF NOT EXISTS admin_state (
     editing_setting TEXT DEFAULT '',
     new_hint_text TEXT DEFAULT '',
     target_user_id INTEGER DEFAULT 0,
-    new_group_chat_id INTEGER DEFAULT 0
+    new_group_chat_id INTEGER DEFAULT 0,
+    send_message_type TEXT DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS achievements (
@@ -168,6 +169,7 @@ ALTER TABLE admin_state ADD COLUMN target_user_id INTEGER DEFAULT 0;
 ALTER TABLE user_chat_state ADD COLUMN awaiting_next_step BOOLEAN DEFAULT FALSE;
 ALTER TABLE steps ADD COLUMN is_asterisk BOOLEAN DEFAULT FALSE;
 ALTER TABLE admin_state ADD COLUMN new_group_chat_id INTEGER DEFAULT 0;
+ALTER TABLE admin_state ADD COLUMN send_message_type TEXT DEFAULT '';
 `
 
 func InitSchema(db *sql.DB) error {

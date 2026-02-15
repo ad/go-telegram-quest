@@ -207,6 +207,10 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.handleManualAchievementAward(ctx, chatID, messageID, data)
 	case strings.HasPrefix(data, "admin:send_message:"):
 		h.startSendMessage(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:send_msg_type:"):
+		h.handleSendMessageTypeSelect(ctx, chatID, messageID, data)
+	case strings.HasPrefix(data, "admin:send_msg_cancel:"):
+		h.handleSendMessageCancel(ctx, chatID, messageID, data)
 	case data == "admin:achievement_stats":
 		h.showAchievementStatistics(ctx, chatID, messageID)
 	case strings.HasPrefix(data, "admin:achievement_leaders"):
@@ -982,6 +986,10 @@ func (h *AdminHandler) handleStateInput(ctx context.Context, msg *tgmodels.Messa
 		return h.handleEditHintImage(ctx, msg, state)
 	case fsm.StateAdminSendMessage:
 		return h.handleSendMessage(ctx, msg, state)
+	case fsm.StateAdminSendMessagePhoto:
+		return h.handleSendMessagePhoto(ctx, msg, state)
+	case fsm.StateAdminSendMessageDocument:
+		return h.handleSendMessageDocument(ctx, msg, state)
 	case fsm.StateAdminEnableGroupRestrictionID:
 		return h.handleEnableGroupRestrictionID(ctx, msg, state)
 	case fsm.StateAdminEnableGroupRestrictionLink:
@@ -3030,17 +3038,81 @@ func (h *AdminHandler) startSendMessage(ctx context.Context, chatID int64, messa
 		return
 	}
 
-	// Create admin state with target user ID
+	// Show message type selection menu
+	prompt := fmt.Sprintf("💬 Отправка сообщения пользователю %s\n\nВыберите тип сообщения:", html.EscapeString(user.DisplayName()))
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{
+				{Text: "📝 Текст", CallbackData: fmt.Sprintf("admin:send_msg_type:text:%d", userID)},
+				{Text: "🖼 Фото", CallbackData: fmt.Sprintf("admin:send_msg_type:photo:%d", userID)},
+				{Text: "📎 Документ", CallbackData: fmt.Sprintf("admin:send_msg_type:document:%d", userID)},
+			},
+			{
+				{Text: "❌ Отмена", CallbackData: fmt.Sprintf("admin:send_msg_cancel:%d", userID)},
+			},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, prompt, keyboard)
+}
+
+func (h *AdminHandler) handleSendMessageTypeSelect(ctx context.Context, chatID int64, messageID int, data string) {
+	// data format: "admin:send_msg_type:{type}:{userID}"
+	withoutPrefix := strings.TrimPrefix(data, "admin:send_msg_type:")
+	parts := strings.SplitN(withoutPrefix, ":", 2)
+	if len(parts) != 2 {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Неверный формат данных", nil)
+		return
+	}
+	msgType := parts[0]
+	userID, err := parseInt64(parts[1])
+	if err != nil || userID == 0 {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Неверный ID пользователя", nil)
+		return
+	}
+
+	user, err := h.userRepo.GetByID(userID)
+	if err != nil || user == nil {
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Пользователь не найден", nil)
+		return
+	}
+
+	var fsmState string
+	var instructions string
+	switch msgType {
+	case "text":
+		fsmState = fsm.StateAdminSendMessage
+		instructions = fmt.Sprintf("💬 Отправка сообщения пользователю %s\n\n📝 Введите текст сообщения:\n\n/cancel - отмена операции", html.EscapeString(user.DisplayName()))
+	case "photo":
+		fsmState = fsm.StateAdminSendMessagePhoto
+		instructions = fmt.Sprintf("💬 Отправка фото пользователю %s\n\n🖼 Отправьте фото (подпись опциональна):\n\n/cancel - отмена операции", html.EscapeString(user.DisplayName()))
+	case "document":
+		fsmState = fsm.StateAdminSendMessageDocument
+		instructions = fmt.Sprintf("💬 Отправка документа пользователю %s\n\n📎 Отправьте файл (подпись опциональна):\n\n/cancel - отмена операции", html.EscapeString(user.DisplayName()))
+	default:
+		h.editOrSend(ctx, chatID, messageID, "⚠️ Неизвестный тип сообщения", nil)
+		return
+	}
+
 	state := &models.AdminState{
-		UserID:       h.adminID,
-		CurrentState: fsm.StateAdminSendMessage,
-		TargetUserID: userID,
+		UserID:          h.adminID,
+		CurrentState:    fsmState,
+		TargetUserID:    userID,
+		SendMessageType: msgType,
 	}
 	h.adminStateRepo.Save(state)
 
-	// Display instructions with /cancel option
-	instructions := fmt.Sprintf("💬 Отправка сообщения пользователю %s\n\n📝 Введите текст сообщения:\n\n/cancel - отмена операции", html.EscapeString(user.DisplayName()))
 	h.editOrSend(ctx, chatID, messageID, instructions, nil)
+}
+
+func (h *AdminHandler) handleSendMessageCancel(ctx context.Context, chatID int64, messageID int, data string) {
+	userIDStr := strings.TrimPrefix(data, "admin:send_msg_cancel:")
+	userID, err := parseInt64(userIDStr)
+	if err != nil || userID == 0 {
+		h.editOrSend(ctx, chatID, messageID, "❌ Отправка сообщения отменена", nil)
+		return
+	}
+	h.adminStateRepo.Clear(h.adminID)
+	h.showUserDetails(ctx, chatID, messageID, fmt.Sprintf("user:%d", userID))
 }
 
 func (h *AdminHandler) handleSendMessage(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
@@ -3117,5 +3189,147 @@ func (h *AdminHandler) sendMessageToUser(ctx context.Context, adminChatID int64,
 	}
 
 	// Return to user details screen
+	h.showUserDetails(ctx, adminChatID, 0, fmt.Sprintf("user:%d", targetUserID))
+}
+
+func (h *AdminHandler) handleSendMessagePhoto(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if msg.Text == "/cancel" {
+		h.adminStateRepo.Clear(h.adminID)
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "❌ Отправка сообщения отменена",
+		})
+		h.showUserDetails(ctx, msg.Chat.ID, 0, fmt.Sprintf("user:%d", state.TargetUserID))
+		return true
+	}
+
+	if len(msg.Photo) == 0 {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Пожалуйста, отправьте фото или /cancel для отмены.",
+		})
+		return true
+	}
+
+	fileID := msg.Photo[len(msg.Photo)-1].FileID
+	caption := msg.Caption
+	h.sendPhotoToUser(ctx, msg.Chat.ID, state.TargetUserID, fileID, caption)
+	return true
+}
+
+func (h *AdminHandler) handleSendMessageDocument(ctx context.Context, msg *tgmodels.Message, state *models.AdminState) bool {
+	if msg.Text == "/cancel" {
+		h.adminStateRepo.Clear(h.adminID)
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "❌ Отправка сообщения отменена",
+		})
+		h.showUserDetails(ctx, msg.Chat.ID, 0, fmt.Sprintf("user:%d", state.TargetUserID))
+		return true
+	}
+
+	if msg.Document == nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: msg.Chat.ID,
+			Text:   "⚠️ Пожалуйста, отправьте файл или /cancel для отмены.",
+		})
+		return true
+	}
+
+	fileID := msg.Document.FileID
+	caption := msg.Caption
+	h.sendDocumentToUser(ctx, msg.Chat.ID, state.TargetUserID, fileID, caption)
+	return true
+}
+
+func (h *AdminHandler) sendPhotoToUser(ctx context.Context, adminChatID int64, targetUserID int64, fileID string, caption string) {
+	user, err := h.userRepo.GetByID(targetUserID)
+	if err != nil || user == nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: adminChatID,
+			Text:   "⚠️ Ошибка: пользователь не найден",
+		})
+		h.adminStateRepo.Clear(h.adminID)
+		return
+	}
+
+	_, err = h.bot.SendPhoto(ctx, &bot.SendPhotoParams{
+		ChatID:  targetUserID,
+		Photo:   &tgmodels.InputFileString{Data: fileID},
+		Caption: caption,
+	})
+
+	if err == nil && h.achievementEngine != nil {
+		awarded, achievementErr := h.achievementEngine.OnMessageFromAdmin(targetUserID)
+		if achievementErr != nil {
+			log.Printf("[ADMIN] Error awarding message from admin achievement: %v", achievementErr)
+		} else if len(awarded) > 0 {
+			h.notifyAchievements(ctx, targetUserID, awarded)
+		}
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	if err != nil {
+		statusMessage := fmt.Sprintf("❌ Ошибка при отправке фото пользователю %s:\n%v", html.EscapeString(user.DisplayName()), err)
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: adminChatID,
+			Text:   statusMessage,
+		})
+	} else {
+		statusMessage := fmt.Sprintf("✅ Фото успешно отправлено пользователю %s", html.EscapeString(user.DisplayName()))
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:    adminChatID,
+			Text:      statusMessage,
+			ParseMode: tgmodels.ParseModeHTML,
+		})
+	}
+
+	h.showUserDetails(ctx, adminChatID, 0, fmt.Sprintf("user:%d", targetUserID))
+}
+
+func (h *AdminHandler) sendDocumentToUser(ctx context.Context, adminChatID int64, targetUserID int64, fileID string, caption string) {
+	user, err := h.userRepo.GetByID(targetUserID)
+	if err != nil || user == nil {
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: adminChatID,
+			Text:   "⚠️ Ошибка: пользователь не найден",
+		})
+		h.adminStateRepo.Clear(h.adminID)
+		return
+	}
+
+	_, err = h.bot.SendDocument(ctx, &bot.SendDocumentParams{
+		ChatID:   targetUserID,
+		Document: &tgmodels.InputFileString{Data: fileID},
+		Caption:  caption,
+	})
+
+	if err == nil && h.achievementEngine != nil {
+		awarded, achievementErr := h.achievementEngine.OnMessageFromAdmin(targetUserID)
+		if achievementErr != nil {
+			log.Printf("[ADMIN] Error awarding message from admin achievement: %v", achievementErr)
+		} else if len(awarded) > 0 {
+			h.notifyAchievements(ctx, targetUserID, awarded)
+		}
+	}
+
+	h.adminStateRepo.Clear(h.adminID)
+
+	if err != nil {
+		statusMessage := fmt.Sprintf("❌ Ошибка при отправке документа пользователю %s:\n%v", html.EscapeString(user.DisplayName()), err)
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID: adminChatID,
+			Text:   statusMessage,
+		})
+	} else {
+		statusMessage := fmt.Sprintf("✅ Документ успешно отправлен пользователю %s", html.EscapeString(user.DisplayName()))
+		h.bot.SendMessage(ctx, &bot.SendMessageParams{
+			ChatID:    adminChatID,
+			Text:      statusMessage,
+			ParseMode: tgmodels.ParseModeHTML,
+		})
+	}
+
 	h.showUserDetails(ctx, adminChatID, 0, fmt.Sprintf("user:%d", targetUserID))
 }

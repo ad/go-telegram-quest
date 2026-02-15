@@ -37,6 +37,8 @@ const (
 	StateAdminEditHintImage              = "admin_edit_hint_image"
 	StateAdminBackup                     = "admin_backup"
 	StateAdminSendMessage                = "admin_send_message"
+	StateAdminSendMessagePhoto           = "admin_send_message_photo"
+	StateAdminSendMessageDocument        = "admin_send_message_document"
 	StateAdminEnableGroupRestrictionID   = "admin_enable_group_restriction_id"
 	StateAdminEnableGroupRestrictionLink = "admin_enable_group_restriction_link"
 	StateAdminEditGroupID                = "admin_edit_group_id"
