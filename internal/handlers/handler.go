@@ -139,6 +139,18 @@ func (h *BotHandler) handleMessage(ctx context.Context, msg *tgmodels.Message) {
 		return
 	}
 
+	if strings.EqualFold(msg.Text, "Подсказка") {
+		if h.handleHintByText(ctx, userID) {
+			return
+		}
+	}
+
+	if strings.EqualFold(msg.Text, "Пропустить") {
+		if h.handleSkipByText(ctx, userID) {
+			return
+		}
+	}
+
 	if len(msg.Photo) > 0 {
 		h.handleImageAnswer(ctx, msg)
 		return
@@ -1380,6 +1392,58 @@ func (h *BotHandler) handleSkipStepCallback(ctx context.Context, callback *tgmod
 		CallbackQueryID: callback.ID,
 		Text:            "Шаг пропущен",
 	})
+}
+
+func (h *BotHandler) handleHintByText(ctx context.Context, userID int64) bool {
+	state, err := h.stateResolver.ResolveState(userID)
+	if err != nil || state.IsCompleted || state.CurrentStep == nil {
+		return false
+	}
+
+	step := state.CurrentStep
+	if !step.HasHint() {
+		return false
+	}
+
+	chatState, err := h.chatStateRepo.Get(userID)
+	if err == nil && chatState != nil && chatState.CurrentStepHintUsed {
+		return false
+	}
+
+	hintMsgID, err := h.sendHintMessage(ctx, userID, step)
+	if err != nil {
+		return false
+	}
+
+	h.chatStateRepo.UpdateHintMessageID(userID, hintMsgID)
+	h.chatStateRepo.SetHintUsed(userID, true)
+
+	if chatState != nil && chatState.LastTaskMessageID != 0 {
+		h.removeHintButton(ctx, userID, chatState.LastTaskMessageID)
+	}
+
+	h.evaluateAchievementsOnHintUsed(ctx, userID)
+	return true
+}
+
+func (h *BotHandler) handleSkipByText(ctx context.Context, userID int64) bool {
+	state, err := h.stateResolver.ResolveState(userID)
+	if err != nil || state.IsCompleted || state.CurrentStep == nil {
+		return false
+	}
+
+	step := state.CurrentStep
+	if !step.IsAsterisk {
+		return false
+	}
+
+	if err := h.progressRepo.CreateSkipped(userID, step.ID); err != nil {
+		log.Printf("[HANDLER] Error creating skipped progress via text: %v", err)
+		return false
+	}
+
+	h.moveToNextStep(ctx, userID, step.StepOrder)
+	return true
 }
 
 func (h *BotHandler) sendHintMessage(ctx context.Context, userID int64, step *models.Step) (int, error) {
