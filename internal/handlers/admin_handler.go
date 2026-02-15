@@ -1529,6 +1529,9 @@ func (h *AdminHandler) buildUserListKeyboard(page *services.UserListPage) *tgmod
 	}
 
 	rows = append(rows, []tgmodels.InlineKeyboardButton{
+		{Text: "🔄 Обновить", CallbackData: fmt.Sprintf("userlist:%d", page.CurrentPage)},
+	})
+	rows = append(rows, []tgmodels.InlineKeyboardButton{
 		{Text: "⬅️ Назад", CallbackData: "admin:menu"},
 	})
 
@@ -2994,6 +2997,7 @@ func (h *AdminHandler) showStatistics(ctx context.Context, chatID int64, message
 
 	keyboard := &tgmodels.InlineKeyboardMarkup{
 		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:statistics"}},
 			{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
 		},
 	}
