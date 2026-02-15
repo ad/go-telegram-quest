@@ -106,13 +106,21 @@ func (s *StatisticsService) CalculateStats() (*Statistics, error) {
 func (s *StatisticsService) GetLeaders() ([]*models.User, error) {
 	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		rows, err := db.Query(`
-			SELECT u.id, u.first_name, u.last_name, u.username, u.created_at, 
-			       COALESCE(MAX(st.step_order), 0) as max_step
+			SELECT u.id, u.first_name, u.last_name, u.username, u.created_at,
+			       COALESCE(MAX(st.step_order), 0) as max_step,
+			       COALESCE((
+			           SELECT p2.completed_at
+			           FROM user_progress p2
+			           JOIN steps st2 ON p2.step_id = st2.id AND st2.is_active = TRUE AND st2.is_deleted = FALSE
+			           WHERE p2.user_id = u.id AND p2.status = 'approved'
+			           ORDER BY st2.step_order DESC
+			           LIMIT 1
+			       ), u.created_at) as max_step_completed_at
 			FROM users u
 			LEFT JOIN user_progress p ON u.id = p.user_id AND p.status = 'approved'
 			LEFT JOIN steps st ON p.step_id = st.id AND st.is_active = TRUE AND st.is_deleted = FALSE
 			GROUP BY u.id
-			ORDER BY max_step DESC, u.created_at ASC
+			ORDER BY max_step DESC, max_step_completed_at ASC
 		`)
 		if err != nil {
 			return nil, err
@@ -124,7 +132,8 @@ func (s *StatisticsService) GetLeaders() ([]*models.User, error) {
 			var user models.User
 			var firstName, lastName, username sql.NullString
 			var maxStep int
-			if err := rows.Scan(&user.ID, &firstName, &lastName, &username, &user.CreatedAt, &maxStep); err != nil {
+			var maxStepCompletedAt string
+			if err := rows.Scan(&user.ID, &firstName, &lastName, &username, &user.CreatedAt, &maxStep, &maxStepCompletedAt); err != nil {
 				return nil, err
 			}
 			user.FirstName = firstName.String
@@ -160,15 +169,23 @@ func (s *StatisticsService) GetUserMaxStep(userID int64) (int, error) {
 func (s *StatisticsService) GetUserLeaderboardPosition(userID int64) (int, int, error) {
 	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
 		var userMaxStep int
-		var userCreatedAt string
+		var userMaxStepCompletedAt string
 		err := db.QueryRow(`
-			SELECT COALESCE(MAX(st.step_order), 0), u.created_at
+			SELECT COALESCE(MAX(st.step_order), 0),
+			       COALESCE((
+			           SELECT p2.completed_at
+			           FROM user_progress p2
+			           JOIN steps st2 ON p2.step_id = st2.id AND st2.is_active = TRUE AND st2.is_deleted = FALSE
+			           WHERE p2.user_id = u.id AND p2.status = 'approved'
+			           ORDER BY st2.step_order DESC
+			           LIMIT 1
+			       ), u.created_at)
 			FROM users u
 			LEFT JOIN user_progress p ON u.id = p.user_id AND p.status = 'approved'
 			LEFT JOIN steps st ON p.step_id = st.id AND st.is_active = TRUE AND st.is_deleted = FALSE
 			WHERE u.id = ?
 			GROUP BY u.id, u.created_at
-		`, userID).Scan(&userMaxStep, &userCreatedAt)
+		`, userID).Scan(&userMaxStep, &userMaxStepCompletedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -177,16 +194,25 @@ func (s *StatisticsService) GetUserLeaderboardPosition(userID int64) (int, int, 
 		err = db.QueryRow(`
 			SELECT COUNT(*) + 1 as position
 			FROM (
-				SELECT u.id, COALESCE(MAX(st.step_order), 0) as max_step, u.created_at
+				SELECT u.id,
+				       COALESCE(MAX(st.step_order), 0) as max_step,
+				       COALESCE((
+				           SELECT p2.completed_at
+				           FROM user_progress p2
+				           JOIN steps st2 ON p2.step_id = st2.id AND st2.is_active = TRUE AND st2.is_deleted = FALSE
+				           WHERE p2.user_id = u.id AND p2.status = 'approved'
+				           ORDER BY st2.step_order DESC
+				           LIMIT 1
+				       ), u.created_at) as max_step_completed_at
 				FROM users u
 				LEFT JOIN user_progress p ON u.id = p.user_id AND p.status = 'approved'
 				LEFT JOIN steps st ON p.step_id = st.id AND st.is_active = TRUE AND st.is_deleted = FALSE
 				WHERE u.id != ?
 				GROUP BY u.id, u.created_at
 			) ranked
-			WHERE max_step > ? 
-			   OR (max_step = ? AND created_at < ?)
-		`, userID, userMaxStep, userMaxStep, userCreatedAt).Scan(&position)
+			WHERE max_step > ?
+			   OR (max_step = ? AND max_step_completed_at < ?)
+		`, userID, userMaxStep, userMaxStep, userMaxStepCompletedAt).Scan(&position)
 		if err != nil {
 			return nil, err
 		}
