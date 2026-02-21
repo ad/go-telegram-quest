@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html"
 	"log"
+	"math"
 	"os/exec"
 	"strings"
 	"time"
@@ -217,6 +218,30 @@ func (h *AdminHandler) HandleCallback(ctx context.Context, callback *tgmodels.Ca
 		h.showAchievementLeaders(ctx, chatID, messageID)
 	case data == "admin:statistics":
 		h.showStatistics(ctx, chatID, messageID)
+	case data == "admin:analytics":
+		h.showAnalyticsMenu(ctx, chatID, messageID)
+	case data == "admin:analytics:funnel":
+		h.showFunnelAnalytics(ctx, chatID, messageID)
+	case data == "admin:analytics:hardest":
+		h.showHardestSteps(ctx, chatID, messageID)
+	case data == "admin:analytics:hints":
+		h.showHintAnalytics(ctx, chatID, messageID)
+	case strings.HasPrefix(data, "admin:analytics:answers:"):
+		h.showStepAnswers(ctx, chatID, messageID, data)
+	case data == "admin:analytics:speedrun":
+		h.showSpeedruns(ctx, chatID, messageID)
+	case data == "admin:analytics:stubborn":
+		h.showStubbornRecords(ctx, chatID, messageID)
+	case data == "admin:analytics:segments":
+		h.showAudienceSegments(ctx, chatID, messageID)
+	case data == "admin:analytics:dropoff":
+		h.showDropoffPoints(ctx, chatID, messageID)
+	case data == "admin:analytics:hourly":
+		h.showHourlyActivity(ctx, chatID, messageID)
+	case data == "admin:analytics:diversity":
+		h.showAnswerDiversity(ctx, chatID, messageID)
+	case data == "admin:analytics:homework":
+		h.showHomeworkSteps(ctx, chatID, messageID)
 	case data == "admin:step_type:text":
 		h.setStepType(ctx, chatID, messageID, models.AnswerTypeText)
 	case data == "admin:step_type:image":
@@ -294,6 +319,7 @@ func (h *AdminHandler) showAdminMenu(ctx context.Context, chatID int64, messageI
 			{{Text: "🏆 Достижения", CallbackData: "admin:achievement_stats"}},
 			{{Text: "💾 Бэкап", CallbackData: "admin:backup"}},
 			{{Text: "📊 Статистика", CallbackData: "admin:statistics"}},
+			{{Text: "🔍 Аналитика ответов", CallbackData: "admin:analytics"}},
 			{{Text: "⚙️ Настройки", CallbackData: "admin:settings"}},
 		},
 	}
@@ -3286,6 +3312,511 @@ func (h *AdminHandler) sendPhotoToUser(ctx context.Context, adminChatID int64, t
 	}
 
 	h.showUserDetails(ctx, adminChatID, 0, fmt.Sprintf("user:%d", targetUserID))
+}
+
+// ─── Аналитика ответов ────────────────────────────────────────────────────────
+
+func (h *AdminHandler) showAnalyticsMenu(ctx context.Context, chatID int64, messageID int) {
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "📉 Воронка прохождения", CallbackData: "admin:analytics:funnel"}},
+			{{Text: "😤 Сложнейшие шаги", CallbackData: "admin:analytics:hardest"}},
+			{{Text: "💡 Подсказки по шагам", CallbackData: "admin:analytics:hints"}},
+			{{Text: "💬 Топ ответов по шагу", CallbackData: "admin:analytics:answers:0"}},
+			{{Text: "🏃 Спидраны", CallbackData: "admin:analytics:speedrun"}},
+			{{Text: "🪨 Рекорды упрямства", CallbackData: "admin:analytics:stubborn"}},
+			{{Text: "🎯 Портрет аудитории", CallbackData: "admin:analytics:segments"}},
+			{{Text: "📍 Точки отвала", CallbackData: "admin:analytics:dropoff"}},
+			{{Text: "⏰ Хронология квеста", CallbackData: "admin:analytics:hourly"}},
+			{{Text: "🎲 Неоднозначные вопросы", CallbackData: "admin:analytics:diversity"}},
+			{{Text: "📚 Вопросы для домашки", CallbackData: "admin:analytics:homework"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:menu"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, "🔍 <b>Аналитика ответов</b>\n\nВыберите раздел:", keyboard)
+}
+
+func (h *AdminHandler) showFunnelAnalytics(ctx context.Context, chatID int64, messageID int) {
+	funnel, err := h.statsService.GetFunnelStats()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📉 <b>Воронка прохождения</b>\n")
+	sb.WriteString("<i>Уникальных участников на каждом шаге</i>\n\n")
+
+	maxUsers := 1
+	for _, d := range funnel {
+		if d.UniqueUsers > maxUsers {
+			maxUsers = d.UniqueUsers
+		}
+	}
+
+	const barWidth = 10
+	for _, d := range funnel {
+		filled := 0
+		if maxUsers > 0 {
+			filled = (d.UniqueUsers * barWidth) / maxUsers
+		}
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+		sb.WriteString(fmt.Sprintf("<code>%2d</code> %s %d\n", d.StepOrder, bar, d.UniqueUsers))
+		if sb.Len() > 3500 {
+			sb.WriteString("...\n")
+			break
+		}
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:analytics:funnel"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:analytics"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
+}
+
+func (h *AdminHandler) showHardestSteps(ctx context.Context, chatID int64, messageID int) {
+	steps, err := h.statsService.GetHardestSteps(10)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("😤 <b>Самые сложные шаги</b>\n")
+	sb.WriteString("<i>Топ по среднему числу попыток на участника</i>\n\n")
+
+	if len(steps) == 0 {
+		sb.WriteString("Данных пока нет")
+	}
+	for i, s := range steps {
+		sb.WriteString(fmt.Sprintf(
+			"%d. Шаг %d: <b>%.1f</b> попыток/чел\n   <i>%s</i>\n   Всего: %d попыток, %d уч.\n\n",
+			i+1, s.StepOrder, s.AvgAttempts,
+			html.EscapeString(truncateText(s.StepText, 40)),
+			s.TotalAttempts, s.UniqueUsers,
+		))
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:analytics:hardest"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:analytics"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
+}
+
+func (h *AdminHandler) showHintAnalytics(ctx context.Context, chatID int64, messageID int) {
+	hints, err := h.statsService.GetHintStats(15)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("💡 <b>Подсказки по шагам</b>\n")
+	sb.WriteString("<i>На каких шагах чаще всего просят подсказку</i>\n\n")
+
+	if len(hints) == 0 {
+		sb.WriteString("Подсказки пока не использовались")
+	}
+	for i, h2 := range hints {
+		sb.WriteString(fmt.Sprintf(
+			"%d. Шаг %d — <b>%d</b> раз\n   <i>%s</i>\n",
+			i+1, h2.StepOrder, h2.HintCount,
+			html.EscapeString(truncateText(h2.StepText, 45)),
+		))
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:analytics:hints"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:analytics"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
+}
+
+func (h *AdminHandler) showStepAnswers(ctx context.Context, chatID int64, messageID int, data string) {
+	orderStr := strings.TrimPrefix(data, "admin:analytics:answers:")
+	targetOrder := 0
+	fmt.Sscanf(orderStr, "%d", &targetOrder) //nolint:errcheck
+
+	orders, err := h.statsService.GetAutoCheckStepOrders()
+	if err != nil || len(orders) == 0 {
+		h.editOrSend(ctx, chatID, messageID, "❌ Нет шагов с авто-проверкой или ответов пока нет", nil)
+		return
+	}
+
+	idx := 0
+	if targetOrder > 0 {
+		for i, o := range orders {
+			if o == targetOrder {
+				idx = i
+				break
+			}
+		}
+	}
+	stepOrder := orders[idx]
+
+	stats, err := h.statsService.GetTopAnswersForStep(stepOrder, 12)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("💬 <b>Ответы на шаг %d</b>\n", stats.StepOrder))
+	sb.WriteString(fmt.Sprintf("<i>%s</i>\n", html.EscapeString(truncateText(stats.StepText, 60))))
+	sb.WriteString(fmt.Sprintf("Всего ответов: <b>%d</b>\n\n", stats.TotalAnswers))
+
+	if len(stats.TopAnswers) == 0 {
+		sb.WriteString("Ответов пока нет")
+	}
+	for i, a := range stats.TopAnswers {
+		pct := 0
+		if stats.TotalAnswers > 0 {
+			pct = (a.Count * 100) / stats.TotalAnswers
+		}
+		sb.WriteString(fmt.Sprintf(
+			"%d. <code>%s</code> — %d (%d%%)\n",
+			i+1, html.EscapeString(a.Answer), a.Count, pct,
+		))
+	}
+
+	var navRow []tgmodels.InlineKeyboardButton
+	if idx > 0 {
+		navRow = append(navRow, tgmodels.InlineKeyboardButton{
+			Text:         fmt.Sprintf("◀️ Шаг %d", orders[idx-1]),
+			CallbackData: fmt.Sprintf("admin:analytics:answers:%d", orders[idx-1]),
+		})
+	}
+	if idx < len(orders)-1 {
+		navRow = append(navRow, tgmodels.InlineKeyboardButton{
+			Text:         fmt.Sprintf("Шаг %d ▶️", orders[idx+1]),
+			CallbackData: fmt.Sprintf("admin:analytics:answers:%d", orders[idx+1]),
+		})
+	}
+
+	var rows [][]tgmodels.InlineKeyboardButton
+	if len(navRow) > 0 {
+		rows = append(rows, navRow)
+	}
+	rows = append(rows, []tgmodels.InlineKeyboardButton{
+		{Text: "⬅️ Назад", CallbackData: "admin:analytics"},
+	})
+
+	h.editOrSend(ctx, chatID, messageID, sb.String(), &tgmodels.InlineKeyboardMarkup{InlineKeyboard: rows})
+}
+
+func (h *AdminHandler) showAudienceSegments(ctx context.Context, chatID int64, messageID int) {
+	seg, err := h.statsService.GetAudienceSegments()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	bar := func(count, total int) string {
+		const w = 8
+		if total == 0 {
+			return strings.Repeat("░", w)
+		}
+		filled := (count * w) / total
+		return strings.Repeat("█", filled) + strings.Repeat("░", w-filled)
+	}
+	pct := func(count, total int) string {
+		if total == 0 {
+			return "0%"
+		}
+		return fmt.Sprintf("%d%%", (count*100)/total)
+	}
+
+	n := seg.TotalUsers
+	var sb strings.Builder
+	sb.WriteString("🎯 <b>Портрет аудитории</b>\n\n")
+	sb.WriteString(fmt.Sprintf("Участников всего: <b>%d</b>\n", n))
+	sb.WriteString(fmt.Sprintf("Средний прогресс: <b>%.0f%%</b>\n\n", seg.AvgPct))
+	sb.WriteString(fmt.Sprintf("<code>🏆 Финишёры     %s %d (%s)</code>\n", bar(seg.Finishers, n), seg.Finishers, pct(seg.Finishers, n)))
+	sb.WriteString(fmt.Sprintf("<code>🔥 Почти финиш  %s %d (%s)</code>\n", bar(seg.Almost, n), seg.Almost, pct(seg.Almost, n)))
+	sb.WriteString(fmt.Sprintf("<code>💪 Середнячки   %s %d (%s)</code>\n", bar(seg.Middle, n), seg.Middle, pct(seg.Middle, n)))
+	sb.WriteString(fmt.Sprintf("<code>🚶 Начинающие   %s %d (%s)</code>\n", bar(seg.Beginners, n), seg.Beginners, pct(seg.Beginners, n)))
+	sb.WriteString(fmt.Sprintf("<code>👣 Только старт %s %d (%s)</code>\n", bar(seg.JustStarted, n), seg.JustStarted, pct(seg.JustStarted, n)))
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:analytics:segments"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:analytics"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
+}
+
+func (h *AdminHandler) showDropoffPoints(ctx context.Context, chatID int64, messageID int) {
+	points, err := h.statsService.GetDropoffPoints(10)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📍 <b>Точки отвала</b>\n")
+	sb.WriteString("<i>Шаги, после которых участники уходили</i>\n\n")
+
+	if len(points) == 0 {
+		sb.WriteString("Все дошли до конца — феноменально!")
+	}
+	for i, p := range points {
+		filled := int(math.Round(p.DropPct / 10))
+		if filled > 10 {
+			filled = 10
+		}
+		bar := strings.Repeat("🟥", filled) + strings.Repeat("⬜", 10-filled)
+		sb.WriteString(fmt.Sprintf(
+			"%d. Шаг %d %s %.0f%%\n   <i>%s</i>\n   ушло %d из %d зашедших\n\n",
+			i+1, p.StepOrder, bar, p.DropPct,
+			html.EscapeString(truncateText(p.StepText, 55)),
+			p.Dropped, p.Starters,
+		))
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:analytics:dropoff"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:analytics"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
+}
+
+func (h *AdminHandler) showHourlyActivity(ctx context.Context, chatID int64, messageID int) {
+	activity, err := h.statsService.GetHourlyActivity()
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	maxAnswers := 1
+	for _, a := range activity {
+		if a.AnswerCount > maxAnswers {
+			maxAnswers = a.AnswerCount
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("⏰ <b>Хронология квеста</b>\n")
+	sb.WriteString("<i>Активность по часам суток</i>\n\n")
+
+	const barWidth = 12
+	for _, a := range activity {
+		filled := (a.AnswerCount * barWidth) / maxAnswers
+		bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+		sb.WriteString(fmt.Sprintf("<code>%02d:00 %s %d</code>\n", a.Hour, bar, a.AnswerCount))
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:analytics:hourly"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:analytics"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
+}
+
+func (h *AdminHandler) showSpeedruns(ctx context.Context, chatID int64, messageID int) {
+	data, err := h.statsService.GetSpeedruns(10)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("🏃 <b>Спидраны</b>\n")
+	sb.WriteString("<i>Быстрее всех прошли квест</i>\n\n")
+
+	medals := []string{"🥇", "🥈", "🥉"}
+	for i, d := range data {
+		name := html.EscapeString(d.FirstName)
+		if d.Username != "" {
+			name += " @" + d.Username
+		}
+		medal := "  "
+		if i < len(medals) {
+			medal = medals[i]
+		}
+		var timeStr string
+		switch {
+		case d.DurationMin < 60:
+			timeStr = fmt.Sprintf("%.0f мин", d.DurationMin)
+		case d.DurationMin < 1440:
+			timeStr = fmt.Sprintf("%.0f ч %.0f мин", d.DurationMin/60, math.Mod(d.DurationMin, 60))
+		default:
+			timeStr = fmt.Sprintf("%.0f д %.0f ч", d.DurationMin/1440, math.Mod(d.DurationMin/60, 24))
+		}
+		progress := fmt.Sprintf("до шага %d", d.MaxStep)
+		if d.IsFinisher {
+			progress = "✅ финишёр"
+		}
+		sb.WriteString(fmt.Sprintf("%s %s\n   ⏱ %s · %s\n", medal, name, timeStr, progress))
+	}
+
+	if len(data) == 0 {
+		sb.WriteString("Данных пока недостаточно")
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:analytics:speedrun"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:analytics"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
+}
+
+func (h *AdminHandler) showStubbornRecords(ctx context.Context, chatID int64, messageID int) {
+	data, err := h.statsService.GetStubbornRecords(10)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("🪨 <b>Рекорды упрямства</b>\n")
+	sb.WriteString("<i>Больше всего попыток на одном вопросе</i>\n\n")
+
+	trophies := []string{"🏆", "🥈", "🥉"}
+	for i, d := range data {
+		name := html.EscapeString(d.FirstName)
+		if d.Username != "" {
+			name += " @" + d.Username
+		}
+		trophy := fmt.Sprintf("%2d.", i+1)
+		if i < len(trophies) {
+			trophy = trophies[i]
+		}
+		comment := ""
+		switch {
+		case d.Attempts >= 50:
+			comment = " 🤯"
+		case d.Attempts >= 30:
+			comment = " 😤"
+		case d.Attempts >= 15:
+			comment = " 💪"
+		}
+		sb.WriteString(fmt.Sprintf(
+			"%s %s\n   Шаг %d — <b>%d</b> попыток%s\n",
+			trophy, name, d.StepOrder, d.Attempts, comment,
+		))
+	}
+
+	if len(data) == 0 {
+		sb.WriteString("Все с первого раза? Не верю!")
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:analytics:stubborn"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:analytics"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
+}
+
+func (h *AdminHandler) showAnswerDiversity(ctx context.Context, chatID int64, messageID int) {
+	steps, err := h.statsService.GetAnswerDiversity(10)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("🎲 <b>Неоднозначные вопросы</b>\n")
+	sb.WriteString("<i>Где участники давали самые разные ответы\n(много уникальных вариантов = вопрос открытый или нечёткий)</i>\n\n")
+
+	if len(steps) == 0 {
+		sb.WriteString("Недостаточно данных")
+	}
+	for i, s := range steps {
+		// Иконка по уровню неоднозначности
+		icon := "🟢" // diversity < 2 — чёткий вопрос
+		switch {
+		case s.Diversity >= 5:
+			icon = "🔴"
+		case s.Diversity >= 3:
+			icon = "🟠"
+		case s.Diversity >= 2:
+			icon = "🟡"
+		}
+		sb.WriteString(fmt.Sprintf(
+			"%d. %s Шаг %d — <b>%.1f</b> вариантов/чел\n   <i>%s</i>\n   %d уч. · %d уникальных ответов\n\n",
+			i+1, icon, s.StepOrder, s.Diversity,
+			html.EscapeString(truncateText(s.StepText, 50)),
+			s.Participants, s.UniqueAnswers,
+		))
+	}
+
+	sb.WriteString("<i>🟢 &lt;2 · 🟡 2–3 · 🟠 3–5 · 🔴 5+</i>")
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:analytics:diversity"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:analytics"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
+}
+
+func (h *AdminHandler) showHomeworkSteps(ctx context.Context, chatID int64, messageID int) {
+	steps, err := h.statsService.GetHomeworkSteps(8)
+	if err != nil {
+		h.editOrSend(ctx, chatID, messageID, "❌ Ошибка получения данных", nil)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("📚 <b>Вопросы для домашнего задания</b>\n")
+	sb.WriteString("<i>Где участники уходили думать и возвращались позже\n(среднее время между первой и последней попыткой)</i>\n\n")
+
+	formatHours := func(h float64) string {
+		switch {
+		case h < 1:
+			return fmt.Sprintf("%.0f мин", h*60)
+		case h < 24:
+			return fmt.Sprintf("%.1f ч", h)
+		default:
+			return fmt.Sprintf("%.1f д", h/24)
+		}
+	}
+
+	if len(steps) == 0 {
+		sb.WriteString("Все отвечали не отходя от кассы!")
+	}
+	for i, s := range steps {
+		icon := "📖"
+		if s.AvgStruggleHours >= 24 {
+			icon = "🏠"
+		} else if s.AvgStruggleHours >= 1 {
+			icon = "🤔"
+		}
+		sb.WriteString(fmt.Sprintf(
+			"%d. %s Шаг %d — в среднем <b>%s</b>\n   <i>%s</i>\n   %d чел · макс. %s\n\n",
+			i+1, icon, s.StepOrder,
+			formatHours(s.AvgStruggleHours),
+			html.EscapeString(truncateText(s.StepText, 50)),
+			s.StrugglingUsers,
+			formatHours(s.MaxStruggleHours),
+		))
+	}
+
+	keyboard := &tgmodels.InlineKeyboardMarkup{
+		InlineKeyboard: [][]tgmodels.InlineKeyboardButton{
+			{{Text: "🔄 Обновить", CallbackData: "admin:analytics:homework"}},
+			{{Text: "⬅️ Назад", CallbackData: "admin:analytics"}},
+		},
+	}
+	h.editOrSend(ctx, chatID, messageID, sb.String(), keyboard)
 }
 
 func (h *AdminHandler) sendDocumentToUser(ctx context.Context, adminChatID int64, targetUserID int64, fileID string, caption string) {

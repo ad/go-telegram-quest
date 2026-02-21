@@ -190,7 +190,7 @@ func InitSchema(db *sql.DB) error {
 			continue
 		}
 		if _, err := db.Exec(stmt); err != nil {
-			log.Printf("Migration %d failed: %s. Error: %v", i, stmt, err)
+			// log.Printf("Migration %d failed: %s. Error: %v", i, stmt, err)
 		} else {
 			log.Printf("Migration %d executed: %s", i, stmt)
 		}

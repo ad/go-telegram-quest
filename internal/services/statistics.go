@@ -569,6 +569,659 @@ func (s *StatisticsService) getUserDetailedAnswerStats(userID int64) (int, int, 
 	return totalAnswers, hintsUsed, first, last, nil
 }
 
+// AudienceSegments — сегменты аудитории по прогрессу
+type AudienceSegments struct {
+	TotalUsers  int
+	MaxStep     int
+	Finishers   int // 100%
+	Almost      int // 75–99%
+	Middle      int // 50–74%
+	Beginners   int // 25–49%
+	JustStarted int // <25%
+	AvgPct      float64
+}
+
+// DropoffPoint — шаг где участники уходили
+type DropoffPoint struct {
+	StepOrder int
+	StepText  string
+	Starters  int
+	Dropped   int
+	DropPct   float64
+}
+
+// HourlyActivity — активность по часу суток
+type HourlyActivity struct {
+	Hour        int
+	Users       int
+	AnswerCount int
+}
+
+// GetAudienceSegments возвращает сегменты участников по % прохождения
+func (s *StatisticsService) GetAudienceSegments() (*AudienceSegments, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var maxStep int
+		err := db.QueryRow(`
+			SELECT COALESCE(MAX(step_order), 0)
+			FROM steps WHERE is_active = TRUE AND is_deleted = FALSE
+		`).Scan(&maxStep)
+		if err != nil || maxStep == 0 {
+			return nil, fmt.Errorf("no active steps")
+		}
+
+		rows, err := db.Query(`
+			SELECT ua.user_id,
+			       ROUND(100.0 * MAX(s.step_order) / ?) as pct
+			FROM user_answers ua
+			JOIN steps s ON s.id = ua.step_id
+			WHERE s.is_active = TRUE AND s.is_deleted = FALSE
+			GROUP BY ua.user_id
+		`, maxStep)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		seg := &AudienceSegments{MaxStep: maxStep}
+		var totalPct float64
+		for rows.Next() {
+			var userID int64
+			var pct float64
+			if err := rows.Scan(&userID, &pct); err != nil {
+				return nil, err
+			}
+			seg.TotalUsers++
+			totalPct += pct
+			switch {
+			case pct >= 100:
+				seg.Finishers++
+			case pct >= 75:
+				seg.Almost++
+			case pct >= 50:
+				seg.Middle++
+			case pct >= 25:
+				seg.Beginners++
+			default:
+				seg.JustStarted++
+			}
+		}
+		if seg.TotalUsers > 0 {
+			seg.AvgPct = totalPct / float64(seg.TotalUsers)
+		}
+		return seg, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*AudienceSegments), nil
+}
+
+// GetDropoffPoints возвращает шаги с наибольшим числом ушедших участников
+func (s *StatisticsService) GetDropoffPoints(limit int) ([]DropoffPoint, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		rows, err := db.Query(`
+			WITH last_steps AS (
+				SELECT ua.user_id, MAX(s.step_order) as last_step
+				FROM user_answers ua
+				JOIN steps s ON s.id = ua.step_id
+				WHERE s.is_active = TRUE AND s.is_deleted = FALSE
+				GROUP BY ua.user_id
+			),
+			step_starters AS (
+				SELECT s.step_order, s.text, COUNT(DISTINCT ua.user_id) as starters
+				FROM steps s
+				JOIN user_answers ua ON s.id = ua.step_id
+				WHERE s.is_active = TRUE AND s.is_deleted = FALSE
+				GROUP BY s.step_order, s.text
+			),
+			step_droppers AS (
+				SELECT last_step as step_order, COUNT(*) as dropped
+				FROM last_steps GROUP BY last_step
+			)
+			SELECT ss.step_order, ss.text, ss.starters,
+			       COALESCE(sd.dropped, 0) as dropped,
+			       ROUND(100.0 * COALESCE(sd.dropped, 0) / ss.starters, 1) as drop_pct
+			FROM step_starters ss
+			LEFT JOIN step_droppers sd ON sd.step_order = ss.step_order
+			WHERE ss.step_order != (
+				SELECT MAX(step_order) FROM steps WHERE is_active = TRUE AND is_deleted = FALSE
+			)
+			AND COALESCE(sd.dropped, 0) > 0
+			ORDER BY drop_pct DESC, dropped DESC
+			LIMIT ?
+		`, limit)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []DropoffPoint
+		for rows.Next() {
+			var d DropoffPoint
+			if err := rows.Scan(&d.StepOrder, &d.StepText, &d.Starters, &d.Dropped, &d.DropPct); err != nil {
+				return nil, err
+			}
+			out = append(out, d)
+		}
+		return out, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]DropoffPoint), nil
+}
+
+// GetHourlyActivity возвращает активность по часам суток
+func (s *StatisticsService) GetHourlyActivity() ([]HourlyActivity, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		rows, err := db.Query(`
+			SELECT CAST(strftime('%H', created_at) AS INTEGER) as hour,
+			       COUNT(DISTINCT user_id) as users,
+			       COUNT(*) as answers
+			FROM user_answers
+			GROUP BY hour
+			ORDER BY hour
+		`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []HourlyActivity
+		for rows.Next() {
+			var h HourlyActivity
+			if err := rows.Scan(&h.Hour, &h.Users, &h.AnswerCount); err != nil {
+				return nil, err
+			}
+			out = append(out, h)
+		}
+		return out, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]HourlyActivity), nil
+}
+
+// AnswerDiversityStep — вопрос с индексом неоднозначности ответов
+type AnswerDiversityStep struct {
+	StepOrder     int
+	StepText      string
+	Participants  int
+	UniqueAnswers int
+	Diversity     float64 // UniqueAnswers / Participants
+}
+
+// HomeworkStep — вопрос где участники долго думали (приходили снова спустя часы/дни)
+type HomeworkStep struct {
+	StepOrder        int
+	StepText         string
+	StrugglingUsers  int
+	AvgStruggleHours float64
+	MaxStruggleHours float64
+}
+
+// GetAnswerDiversity возвращает шаги с авто-проверкой отсортированные по разнообразию ответов.
+// Unicode-aware lowercase делается в Go, а не в SQLite.
+func (s *StatisticsService) GetAnswerDiversity(limit int) ([]AnswerDiversityStep, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		// Загружаем сырые ответы для шагов с авто-проверкой
+		rows, err := db.Query(`
+			SELECT s.step_order, s.text, ua.user_id, ua.text_answer
+			FROM steps s
+			JOIN user_answers ua ON s.id = ua.step_id
+			WHERE s.is_active = TRUE AND s.is_deleted = FALSE
+			  AND s.has_auto_check = TRUE
+			  AND ua.text_answer IS NOT NULL AND ua.text_answer != ''
+		`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		type stepKey struct {
+			order int
+			text  string
+		}
+		// step → set of unique lowercase answers
+		uniqueAnswers := make(map[stepKey]map[string]struct{})
+		// step → set of unique user ids
+		uniqueUsers := make(map[stepKey]map[int64]struct{})
+
+		for rows.Next() {
+			var order int
+			var text, answer string
+			var userID int64
+			if err := rows.Scan(&order, &text, &userID, &answer); err != nil {
+				return nil, err
+			}
+			k := stepKey{order, text}
+			if uniqueAnswers[k] == nil {
+				uniqueAnswers[k] = make(map[string]struct{})
+				uniqueUsers[k] = make(map[int64]struct{})
+			}
+			uniqueAnswers[k][strings.ToLower(strings.TrimSpace(answer))] = struct{}{}
+			uniqueUsers[k][userID] = struct{}{}
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+
+		var out []AnswerDiversityStep
+		for k, answers := range uniqueAnswers {
+			users := len(uniqueUsers[k])
+			if users < 3 {
+				continue
+			}
+			out = append(out, AnswerDiversityStep{
+				StepOrder:     k.order,
+				StepText:      k.text,
+				Participants:  users,
+				UniqueAnswers: len(answers),
+				Diversity:     float64(len(answers)) / float64(users),
+			})
+		}
+		// Сортировка по убыванию diversity
+		for i := 1; i < len(out); i++ {
+			for j := i; j > 0 && out[j].Diversity > out[j-1].Diversity; j-- {
+				out[j], out[j-1] = out[j-1], out[j]
+			}
+		}
+		if len(out) > limit {
+			out = out[:limit]
+		}
+		return out, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]AnswerDiversityStep), nil
+}
+
+// GetHomeworkSteps возвращает шаги, на которых участники дольше всего думали между попытками.
+func (s *StatisticsService) GetHomeworkSteps(limit int) ([]HomeworkStep, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		rows, err := db.Query(`
+			SELECT s.step_order, s.text,
+			       COUNT(DISTINCT sub.user_id) as struggling_users,
+			       AVG((julianday(sub.max_t) - julianday(sub.min_t)) * 24) as avg_hours,
+			       MAX((julianday(sub.max_t) - julianday(sub.min_t)) * 24) as max_hours
+			FROM steps s
+			JOIN (
+				SELECT step_id, user_id,
+				       MIN(created_at) as min_t,
+				       MAX(created_at) as max_t,
+				       COUNT(*) as cnt
+				FROM user_answers
+				GROUP BY step_id, user_id
+				HAVING cnt > 1
+			) sub ON sub.step_id = s.id
+			WHERE s.is_active = TRUE AND s.is_deleted = FALSE
+			GROUP BY s.step_order, s.text
+			HAVING struggling_users >= 2
+			ORDER BY avg_hours DESC
+			LIMIT ?
+		`, limit)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		var out []HomeworkStep
+		for rows.Next() {
+			var h HomeworkStep
+			if err := rows.Scan(&h.StepOrder, &h.StepText, &h.StrugglingUsers, &h.AvgStruggleHours, &h.MaxStruggleHours); err != nil {
+				return nil, err
+			}
+			out = append(out, h)
+		}
+		return out, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]HomeworkStep), nil
+}
+
+// SpeedrunData — данные спидранера
+type SpeedrunData struct {
+	FirstName   string
+	Username    string
+	DurationMin float64
+	MaxStep     int
+	IsFinisher  bool // дошёл до последнего шага
+}
+
+// StubbornData — данные о рекорде упрямства (много попыток на одном шаге)
+type StubbornData struct {
+	FirstName string
+	Username  string
+	StepOrder int
+	Attempts  int
+}
+
+// GetSpeedruns возвращает топ самых быстрых участников (от первого до последнего ответа)
+func (s *StatisticsService) GetSpeedruns(limit int) ([]SpeedrunData, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var lastStep int
+		_ = db.QueryRow(`
+			SELECT COALESCE(MAX(step_order), 0)
+			FROM steps WHERE is_active = TRUE AND is_deleted = FALSE
+		`).Scan(&lastStep)
+
+		rows, err := db.Query(`
+			SELECT u.first_name, u.username,
+			       ROUND((julianday(MAX(ua.created_at)) - julianday(MIN(ua.created_at))) * 24 * 60, 1) as duration_min,
+			       MAX(s.step_order) as max_step
+			FROM user_answers ua
+			JOIN users u ON u.id = ua.user_id
+			JOIN steps s ON s.id = ua.step_id
+			WHERE s.is_active = TRUE AND s.is_deleted = FALSE
+			GROUP BY ua.user_id
+			HAVING duration_min > 0
+			ORDER BY max_step DESC, duration_min ASC
+			LIMIT ?
+		`, limit)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []SpeedrunData
+		for rows.Next() {
+			var d SpeedrunData
+			var firstName, username sql.NullString
+			if err := rows.Scan(&firstName, &username, &d.DurationMin, &d.MaxStep); err != nil {
+				return nil, err
+			}
+			d.IsFinisher = lastStep > 0 && d.MaxStep >= lastStep
+			d.FirstName = firstName.String
+			d.Username = username.String
+			out = append(out, d)
+		}
+		return out, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]SpeedrunData), nil
+}
+
+// GetStubbornRecords возвращает топ рекордов упрямства: больше всего попыток на одном шаге
+func (s *StatisticsService) GetStubbornRecords(limit int) ([]StubbornData, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		rows, err := db.Query(`
+			SELECT u.first_name, u.username, s.step_order, COUNT(ua.id) as attempts
+			FROM user_answers ua
+			JOIN users u ON u.id = ua.user_id
+			JOIN steps s ON s.id = ua.step_id
+			GROUP BY ua.user_id, ua.step_id
+			ORDER BY attempts DESC
+			LIMIT ?
+		`, limit)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []StubbornData
+		for rows.Next() {
+			var d StubbornData
+			var firstName, username sql.NullString
+			if err := rows.Scan(&firstName, &username, &d.StepOrder, &d.Attempts); err != nil {
+				return nil, err
+			}
+			d.FirstName = firstName.String
+			d.Username = username.String
+			out = append(out, d)
+		}
+		return out, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]StubbornData), nil
+}
+
+// AnswerFunnelData содержит данные воронки для одного шага
+type AnswerFunnelData struct {
+	StepOrder   int
+	StepText    string
+	UniqueUsers int
+}
+
+// HardestStep — данные о самом сложном шаге (авто-проверка)
+type HardestStep struct {
+	StepOrder     int
+	StepText      string
+	TotalAttempts int
+	UniqueUsers   int
+	AvgAttempts   float64
+}
+
+// HintStepData — статистика подсказок по шагу
+type HintStepData struct {
+	StepOrder int
+	StepText  string
+	HintCount int
+}
+
+// TopAnswer — популярный ответ на шаг
+type TopAnswer struct {
+	Answer string
+	Count  int
+}
+
+// StepAnswerStats — топ ответов на конкретный шаг
+type StepAnswerStats struct {
+	StepOrder    int
+	StepText     string
+	TotalAnswers int
+	TopAnswers   []TopAnswer
+}
+
+// GetFunnelStats возвращает воронку прохождения: уники по шагам
+func (s *StatisticsService) GetFunnelStats() ([]AnswerFunnelData, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		rows, err := db.Query(`
+			SELECT s.step_order, s.text, COUNT(DISTINCT ua.user_id) as unique_users
+			FROM steps s
+			LEFT JOIN user_answers ua ON s.id = ua.step_id
+			WHERE s.is_active = TRUE AND s.is_deleted = FALSE AND s.is_asterisk = FALSE
+			GROUP BY s.id, s.step_order, s.text
+			ORDER BY s.step_order
+		`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []AnswerFunnelData
+		for rows.Next() {
+			var d AnswerFunnelData
+			if err := rows.Scan(&d.StepOrder, &d.StepText, &d.UniqueUsers); err != nil {
+				return nil, err
+			}
+			out = append(out, d)
+		}
+		return out, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]AnswerFunnelData), nil
+}
+
+// GetHardestSteps возвращает топ шагов с авто-проверкой по среднему числу попыток
+func (s *StatisticsService) GetHardestSteps(limit int) ([]HardestStep, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		rows, err := db.Query(`
+			SELECT
+				s.step_order,
+				s.text,
+				COUNT(ua.id) as total_attempts,
+				COUNT(DISTINCT ua.user_id) as unique_users,
+				CAST(COUNT(ua.id) AS FLOAT) / NULLIF(COUNT(DISTINCT ua.user_id), 0) as avg_attempts
+			FROM steps s
+			JOIN user_answers ua ON s.id = ua.step_id
+			WHERE s.is_active = TRUE AND s.is_deleted = FALSE AND s.has_auto_check = TRUE
+			GROUP BY s.id, s.step_order, s.text
+			HAVING unique_users > 0
+			ORDER BY avg_attempts DESC
+			LIMIT ?
+		`, limit)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []HardestStep
+		for rows.Next() {
+			var h HardestStep
+			if err := rows.Scan(&h.StepOrder, &h.StepText, &h.TotalAttempts, &h.UniqueUsers, &h.AvgAttempts); err != nil {
+				return nil, err
+			}
+			out = append(out, h)
+		}
+		return out, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]HardestStep), nil
+}
+
+// GetHintStats возвращает топ шагов по числу использованных подсказок
+func (s *StatisticsService) GetHintStats(limit int) ([]HintStepData, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		rows, err := db.Query(`
+			SELECT s.step_order, s.text, COUNT(ua.id) as hint_count
+			FROM steps s
+			JOIN user_answers ua ON s.id = ua.step_id AND ua.hint_used = TRUE
+			WHERE s.is_active = TRUE AND s.is_deleted = FALSE
+			GROUP BY s.id, s.step_order, s.text
+			ORDER BY hint_count DESC
+			LIMIT ?
+		`, limit)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []HintStepData
+		for rows.Next() {
+			var h HintStepData
+			if err := rows.Scan(&h.StepOrder, &h.StepText, &h.HintCount); err != nil {
+				return nil, err
+			}
+			out = append(out, h)
+		}
+		return out, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]HintStepData), nil
+}
+
+// GetAutoCheckStepOrders возвращает список step_order шагов с авто-проверкой, на которые есть ответы
+func (s *StatisticsService) GetAutoCheckStepOrders() ([]int, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		rows, err := db.Query(`
+			SELECT s.step_order
+			FROM steps s
+			JOIN user_answers ua ON s.id = ua.step_id
+			WHERE s.is_active = TRUE AND s.is_deleted = FALSE AND s.has_auto_check = TRUE
+			GROUP BY s.step_order
+			ORDER BY s.step_order
+		`)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		var out []int
+		for rows.Next() {
+			var o int
+			if err := rows.Scan(&o); err != nil {
+				return nil, err
+			}
+			out = append(out, o)
+		}
+		return out, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]int), nil
+}
+
+// GetTopAnswersForStep возвращает топ ответов для шага с указанным step_order
+func (s *StatisticsService) GetTopAnswersForStep(stepOrder int, limit int) (*StepAnswerStats, error) {
+	result, err := s.queue.Execute(func(db *sql.DB) (interface{}, error) {
+		var stepID int64
+		var stepText string
+		err := db.QueryRow(`
+			SELECT id, text FROM steps
+			WHERE step_order = ? AND is_active = TRUE AND is_deleted = FALSE AND has_auto_check = TRUE
+		`, stepOrder).Scan(&stepID, &stepText)
+		if err != nil {
+			return nil, err
+		}
+
+		var totalAnswers int
+		_ = db.QueryRow(`SELECT COUNT(*) FROM user_answers WHERE step_id = ?`, stepID).Scan(&totalAnswers)
+
+		// Выбираем сырые ответы — LOWER() в SQLite не работает для кириллицы
+		rows, err := db.Query(`
+			SELECT text_answer, COUNT(*) as cnt
+			FROM user_answers
+			WHERE step_id = ? AND text_answer IS NOT NULL AND text_answer != ''
+			GROUP BY text_answer
+			ORDER BY cnt DESC
+		`, stepID)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+
+		// Объединяем по strings.ToLower (поддерживает Unicode)
+		counts := make(map[string]int)
+		var order []string
+		for rows.Next() {
+			var raw string
+			var cnt int
+			if err := rows.Scan(&raw, &cnt); err != nil {
+				return nil, err
+			}
+			key := strings.ToLower(strings.TrimSpace(raw))
+			if _, seen := counts[key]; !seen {
+				order = append(order, key)
+			}
+			counts[key] += cnt
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+
+		// Сортируем по убыванию count
+		for i := 1; i < len(order); i++ {
+			for j := i; j > 0 && counts[order[j]] > counts[order[j-1]]; j-- {
+				order[j], order[j-1] = order[j-1], order[j]
+			}
+		}
+
+		stats := &StepAnswerStats{
+			StepOrder:    stepOrder,
+			StepText:     stepText,
+			TotalAnswers: totalAnswers,
+		}
+		for i, key := range order {
+			if i >= limit {
+				break
+			}
+			stats.TopAnswers = append(stats.TopAnswers, TopAnswer{Answer: key, Count: counts[key]})
+		}
+		return stats, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*StepAnswerStats), nil
+}
+
 func formatDurationFriendly(d time.Duration) string {
 	days := int(d.Hours()) / 24
 	hours := int(d.Hours()) % 24
